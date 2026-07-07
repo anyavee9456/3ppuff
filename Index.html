@@ -1,0 +1,1546 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>3P กะหรี่ปั๊ป — ระบบรับออเดอร์</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --bg:#FBF6E9;
+    --surface:#FFFFFF;
+    --surface-alt:#FFF3D6;
+    --ink:#3A2E1F;
+    --ink-soft:#7A6B54;
+    --accent:#C08A2E;
+    --accent-dark:#96691E;
+    --accent-bg:#F5E7C8;
+    --success:#4C6B44;
+    --success-bg:#E4EEDD;
+    --danger:#B5482D;
+    --danger-bg:#F6E1D8;
+    --border:#E9DFC7;
+    --radius:14px;
+    --shadow:0 2px 10px rgba(58,46,31,0.08);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Leelawadee UI","Segoe UI","Thonburi",Tahoma,sans-serif;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #app{
+    max-width:480px;
+    margin:0 auto;
+    min-height:100vh;
+    background:var(--bg);
+    display:flex;
+    flex-direction:column;
+    position:relative;
+  }
+  .pleat{
+    height:14px;
+    background-image:radial-gradient(circle at 8px 0px, transparent 8px, var(--accent) 8.5px);
+    background-size:16px 16px;
+    background-repeat:repeat-x;
+    background-position:top;
+    flex-shrink:0;
+  }
+  .topbar{
+    background:var(--accent-dark);
+    color:#fff;
+    padding:14px 16px 18px;
+    flex-shrink:0;
+  }
+  .topbar-row{display:flex;align-items:center;justify-content:space-between;}
+  .topbar-title{font-size:17px;font-weight:700;margin:0;}
+  .topbar-sub{font-size:12.5px;opacity:0.85;margin-top:2px;}
+  .icon-btn{
+    background:rgba(255,255,255,0.15);
+    border:none;
+    color:#fff;
+    width:34px;height:34px;
+    border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+  }
+  .content{
+    flex:1;
+    padding:16px 16px 90px;
+    overflow-y:auto;
+  }
+  .content.no-nav{padding-bottom:24px;}
+  h1,h2,h3{margin:0 0 12px;}
+  h2{font-size:17px;}
+  h3{font-size:14.5px;color:var(--ink-soft);font-weight:700;}
+  p{margin:0;}
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:14px 16px;
+    margin-bottom:12px;
+    box-shadow:var(--shadow);
+  }
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .col{display:flex;flex-direction:column;gap:4px;}
+  .muted{color:var(--ink-soft);font-size:13px;}
+  .big-number{font-size:34px;font-weight:800;color:var(--accent-dark);line-height:1;}
+  .label-sm{font-size:12px;color:var(--ink-soft);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    padding:11px 16px;
+    border-radius:11px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--ink);
+    font-size:14.5px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .btn-block{width:100%;}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn-primary:active{background:var(--accent-dark);}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--accent-dark);padding:8px 10px;}
+  .btn-danger{background:var(--danger-bg);border-color:var(--danger);color:var(--danger);}
+  .btn-success{background:var(--success-bg);border-color:var(--success);color:var(--success);}
+  .btn-sm{padding:7px 11px;font-size:13px;border-radius:9px;}
+  input,select,textarea{
+    width:100%;
+    font-size:15px;
+    padding:11px 12px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--ink);
+    font-family:inherit;
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;}
+  label{font-size:13px;font-weight:700;color:var(--ink-soft);display:block;margin-bottom:5px;}
+  .field{margin-bottom:14px;}
+  .badge{
+    display:inline-flex;align-items:center;
+    font-size:11.5px;font-weight:700;
+    padding:3px 9px;border-radius:100px;
+  }
+  .badge-pending{background:var(--accent-bg);color:var(--accent-dark);}
+  .badge-progress{background:#E3EAF6;color:#2D4F8C;}
+  .badge-done{background:var(--success-bg);color:var(--success);}
+  .badge-unpaid{background:var(--danger-bg);color:var(--danger);}
+  .badge-paid{background:var(--success-bg);color:var(--success);}
+  .badge-cancel{background:#EEE;color:#888;}
+  .order-item-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .order-item-row select{flex:2;}
+  .qty-box{display:flex;align-items:center;border:1px solid var(--border);border-radius:10px;overflow:hidden;flex:1;}
+  .qty-box button{border:none;background:var(--surface-alt);width:32px;height:38px;font-size:16px;font-weight:700;color:var(--accent-dark);cursor:pointer;}
+  .qty-box input{border:none;text-align:center;padding:0;height:38px;width:100%;}
+  .navbar{
+    position:sticky;bottom:0;
+    width:100%;
+    background:var(--surface);
+    border-top:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    gap:4px;
+    padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    max-width:480px;margin:0 auto;
+    flex-shrink:0;
+    z-index:20;
+  }
+  .nav-item{
+    flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+    padding:6px 3px;border-radius:10px;background:none;border:none;
+    color:var(--ink-soft);font-size:10px;font-weight:700;cursor:pointer;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .nav-item span{white-space:nowrap;}
+  .nav-item.active{color:var(--accent-dark);}
+  .nav-item .fab{
+    width:42px;height:42px;border-radius:50%;
+    background:var(--accent);color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    margin-top:-20px;margin-bottom:1px;box-shadow:0 3px 8px rgba(150,105,30,0.4);
+    flex-shrink:0;
+  }
+  .empty{
+    text-align:center;padding:40px 16px;color:var(--ink-soft);
+  }
+  .search-wrap{position:relative;}
+  .search-results{
+    position:absolute;top:100%;left:0;right:0;
+    background:var(--surface);border:1px solid var(--border);
+    border-top:none;border-radius:0 0 10px 10px;
+    max-height:220px;overflow-y:auto;z-index:20;
+  }
+  .search-result-item{padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-size:14px;}
+  .search-result-item:last-child{border-bottom:none;}
+  .search-result-item:active{background:var(--surface-alt);}
+  .pill-row{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;padding-bottom:2px;}
+  .pill{
+    flex-shrink:0;padding:8px 14px;border-radius:100px;border:1px solid var(--border);
+    background:var(--surface);font-size:13.5px;font-weight:700;color:var(--ink-soft);cursor:pointer;
+  }
+  .pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .bar-row{margin-bottom:10px;}
+  .bar-track{background:var(--surface-alt);border-radius:8px;height:22px;overflow:hidden;margin-top:4px;}
+  .bar-fill{background:var(--accent);height:100%;border-radius:8px;display:flex;align-items:center;padding-left:8px;}
+  .bar-fill span{color:#fff;font-size:11.5px;font-weight:700;}
+  .toast{
+    position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+    background:var(--ink);color:#fff;padding:10px 18px;border-radius:100px;
+    font-size:13.5px;font-weight:700;z-index:100;max-width:90%;text-align:center;
+  }
+  .pin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:20px;}
+  .pin-key{
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    height:58px;font-size:20px;font-weight:700;color:var(--ink);cursor:pointer;
+  }
+  .pin-dots{display:flex;gap:12px;justify-content:center;margin:18px 0;}
+  .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--accent);}
+  .pin-dot.filled{background:var(--accent);}
+  .divider{height:1px;background:var(--border);margin:14px 0;}
+  .list-row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:12px 0;border-bottom:1px solid var(--border);
+  }
+  .list-row:last-child{border-bottom:none;}
+  .more-link{
+    display:flex;align-items:center;gap:12px;padding:15px 4px;
+    border-bottom:1px solid var(--border);cursor:pointer;
+  }
+  .more-link:last-child{border-bottom:none;}
+  .more-icon{
+    width:38px;height:38px;border-radius:10px;background:var(--accent-bg);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent-dark);
+  }
+  @media print{
+    body *{visibility:hidden;}
+    #printArea,#printArea *{visibility:visible;}
+    #printArea{position:absolute;top:0;left:0;width:100%;padding:20px;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="printArea" style="display:none;"></div>
+
+<script>
+/* ---------- helpers ---------- */
+function uid(prefix){ return prefix + Math.random().toString(36).slice(2,9); }
+function todayISO(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function addDays(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+const THAI_DAYS=['อา','จ','อ','พ','พฤ','ศ','ส'];
+const THAI_MONTHS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function thaiDate(iso){ const d=new Date(iso+'T00:00:00'); return `${THAI_DAYS[d.getDay()]} ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear()+543}`; }
+function money(n){ return Number(n||0).toLocaleString('th-TH',{maximumFractionDigits:2}); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ---------- PromptPay QR payload (EMVCo standard) ---------- */
+function crc16(str){
+  let crc=0xFFFF;
+  for(let c=0;c<str.length;c++){
+    crc ^= str.charCodeAt(c) << 8;
+    for(let i=0;i<8;i++){
+      crc = (crc & 0x8000) ? ((crc<<1)^0x1021) : (crc<<1);
+      crc &= 0xFFFF;
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4,'0');
+}
+function tlv(id,val){ return id + String(val.length).padStart(2,'0') + val; }
+function promptPayPayload(target,amount){
+  let t = String(target).replace(/[^0-9]/g,'');
+  let type;
+  if(t.length===13){ type='02'; }
+  else { type='01'; t = t.replace(/^0/,'66'); t = t.padStart(13,'0'); }
+  const merchant = tlv('00','A000000677010111') + tlv(type,t);
+  let payload = tlv('00','01') + tlv('01', amount?'12':'11') + tlv('29',merchant) + tlv('53','764');
+  if(amount) payload += tlv('54', Number(amount).toFixed(2));
+  payload += tlv('58','TH') + '6304';
+  return payload + crc16(payload);
+}
+
+/* ---------- seed data ---------- */
+function seed(){
+  return {
+    branches:[{id:'b1',name:'ร้าน 3P กะหรี่ปั๊ป'}],
+    employees:[],
+    products:[],
+    ingredients:[],
+    customers:[],
+    orders:[],
+    recurringOrders:[],
+    settings:{ promptpayId:'', multiBranch:false },
+  };
+}
+
+/* ---------- Supabase connection ---------- */
+const SUPA_URL = 'https://tptdvbyhfgdssisnuxir.supabase.co';
+const SUPA_KEY = 'sb_publishable_j5x8YOsj1Ai3ygFZKjoaEw_9ACTkcVD';
+let sb = null;
+
+function loadScript(src){
+  return new Promise((resolve,reject)=>{
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = ()=>resolve(true);
+    s.onerror = ()=>reject(new Error('โหลดสคริปต์ไม่สำเร็จ: '+src));
+    document.head.appendChild(s);
+  });
+}
+async function ensureSupabaseLib(){
+  if(window.supabase && window.supabase.createClient) return;
+  const sources = [
+    'https://cdnjs.cloudflare.com/ajax/libs/supabase/2.38.0/supabase.min.js',
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+    'https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js',
+  ];
+  let lastErr = null;
+  for(const src of sources){
+    try{
+      await loadScript(src);
+      if(window.supabase && window.supabase.createClient) return;
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('ไม่พบไลบรารี Supabase จากแหล่งใดเลย');
+}
+
+let db = seed();
+let booting = true;
+let bootError = null;
+
+function rowToEmployee(r){ return {id:r.id, branchId:r.branch_id, name:r.name, pin:r.pin}; }
+function rowToProduct(r, recipeRows){
+  return {
+    id:r.id, name:r.name, price:Number(r.price), cost:Number(r.cost), active:r.active,
+    recipe: (recipeRows||[]).filter(x=>x.product_id===r.id).map(x=>({ingredientId:x.ingredient_id, amount:Number(x.amount)})),
+  };
+}
+function rowToIngredient(r){ return {id:r.id, name:r.name, unit:r.unit, costPerUnit:Number(r.cost_per_unit)}; }
+function rowToCustomer(r){ return {id:r.id, name:r.name, phone:r.phone, address:r.address, type:r.type, branchId:r.branch_id}; }
+function rowToOrder(r, itemRows){
+  return {
+    id:r.id, branchId:r.branch_id, customerId:r.customer_id, employeeId:r.employee_id,
+    deliveryDate:r.delivery_date, jobStatus:r.job_status, paymentStatus:r.payment_status,
+    paymentMethod:r.payment_method, createdAt:Number(r.created_at),
+    items: itemRows.filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, qty:Number(i.qty), price:Number(i.price)})),
+  };
+}
+function rowToRecurring(r, itemRows){
+  return {
+    id:r.id, customerId:r.customer_id, dayOfWeek:r.day_of_week, isActive:r.is_active,
+    items: itemRows.filter(i=>i.recurring_order_id===r.id).map(i=>({productId:i.product_id, defaultQty:Number(i.default_qty)})),
+  };
+}
+
+async function loadAllFromSupabase(){
+  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR] = await Promise.all([
+    sb.from('branches').select('*'),
+    sb.from('employees').select('*'),
+    sb.from('products').select('*'),
+    sb.from('customers').select('*'),
+    sb.from('orders').select('*'),
+    sb.from('order_items').select('*'),
+    sb.from('recurring_orders').select('*'),
+    sb.from('recurring_order_items').select('*'),
+    sb.from('settings').select('*').eq('id',1).maybeSingle(),
+    sb.from('ingredients').select('*'),
+    sb.from('recipe_items').select('*'),
+  ]);
+  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR].find(r=>r.error);
+  if(firstErr) throw firstErr.error;
+  db.branches = brR.data;
+  db.employees = empR.data.map(rowToEmployee);
+  db.ingredients = ingR.data.map(rowToIngredient);
+  db.products = prodR.data.map(r=>rowToProduct(r, recR.data));
+  db.customers = custR.data.map(rowToCustomer);
+  db.orders = ordR.data.map(r=>rowToOrder(r, itemR.data));
+  db.recurringOrders = rordR.data.map(r=>rowToRecurring(r, ritemR.data));
+  db.settings = { promptpayId: setR.data ? setR.data.promptpay_id : '', multiBranch: setR.data ? !!setR.data.multi_branch : false };
+}
+
+async function bootstrapSeedToSupabase(){
+  const s = seed();
+  if(s.branches.length) await sb.from('branches').insert(s.branches);
+  if(s.employees.length) await sb.from('employees').insert(s.employees.map(e=>({id:e.id, branch_id:e.branchId, name:e.name, pin:e.pin})));
+  if(s.products.length) await sb.from('products').insert(s.products);
+  if(s.ingredients && s.ingredients.length) await sb.from('ingredients').insert(s.ingredients.map(i=>({id:i.id, name:i.name, unit:i.unit, cost_per_unit:i.costPerUnit})));
+  if(s.customers.length) await sb.from('customers').insert(s.customers.map(c=>({id:c.id, name:c.name, phone:c.phone, address:c.address, type:c.type, branch_id:c.branchId})));
+  await sb.from('settings').upsert({id:1, promptpay_id:s.settings.promptpayId, multi_branch:s.settings.multiBranch});
+  for(const o of s.orders){
+    await sb.from('orders').insert({id:o.id, branch_id:o.branchId, customer_id:o.customerId, employee_id:o.employeeId, delivery_date:o.deliveryDate, job_status:o.jobStatus, payment_status:o.paymentStatus, payment_method:o.paymentMethod, created_at:o.createdAt});
+    await sb.from('order_items').insert(o.items.map(i=>({order_id:o.id, product_id:i.productId, qty:i.qty, price:i.price})));
+  }
+  for(const r of s.recurringOrders){
+    await sb.from('recurring_orders').insert({id:r.id, customer_id:r.customerId, day_of_week:r.dayOfWeek, is_active:r.isActive});
+    await sb.from('recurring_order_items').insert(r.items.map(i=>({recurring_order_id:r.id, product_id:i.productId, default_qty:i.defaultQty})));
+  }
+}
+
+function persist(fn){
+  if(!sb) return;
+  Promise.resolve().then(fn).catch(err=>{
+    console.error('sync error', err);
+    toast('ซิงก์ข้อมูลขึ้น Supabase ไม่สำเร็จ (เช็คเน็ต/ตาราง)');
+  });
+}
+
+async function boot(){
+  document.getElementById('app').innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:14px;">
+      <div style="font-size:40px;">🥟</div>
+      <p style="color:var(--ink-soft);">กำลังเชื่อมต่อฐานข้อมูล...</p>
+    </div>`;
+  try{
+    await ensureSupabaseLib();
+    sb = window.supabase.createClient(SUPA_URL, SUPA_KEY);
+  }catch(err){
+    booting=false;
+    bootError = 'โหลดไลบรารี Supabase ไม่สำเร็จ: ' + ((err&&err.message)||err);
+    render();
+    return;
+  }
+  try{
+    await loadAllFromSupabase();
+    if(db.branches.length===0){
+      await bootstrapSeedToSupabase();
+      await loadAllFromSupabase();
+    }
+    booting=false;
+    render();
+  }catch(err){
+    console.error(err);
+    booting=false;
+    bootError = (err && err.message) ? err.message : String(err);
+    render();
+  }
+}
+
+let state = {
+  session:null,
+  view:'login',
+  loginBranch:null,
+  loginEmployee:null,
+  pinInput:'',
+  selectedDate: todayISO(),
+  branchScope:'mine',
+  orderForm:null,
+  customerForm:null,
+  productForm:null,
+  employeeForm:null,
+  ingredientForm:null,
+  customerSearch:'',
+  showNewCustomer:false,
+  newCustomerDraft:null,
+  historyFilter:{from:addDays(todayISO(),-14),to:addDays(todayISO(),7),q:''},
+  reportRange:'7',
+  toastMsg:null,
+  qrOrderId:null,
+};
+
+function toast(msg){ state.toastMsg=msg; render(); setTimeout(()=>{ state.toastMsg=null; render(); },2000); }
+
+/* ---------- icons ---------- */
+const ICO = {
+  home:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>',
+  plus:'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>',
+  list:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  chart:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>',
+  menu:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
+  back:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg>',
+  logout:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>',
+  users:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 014-4h6a4 4 0 014 4v2"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>',
+  box:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>',
+  repeat:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>',
+  gear:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+  qr:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></svg>',
+  print:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+  trash:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>',
+};
+
+/* ---------- render root ---------- */
+function render(){
+  const app=document.getElementById('app');
+  if(bootError){
+    app.innerHTML = `<div style="padding:40px 20px;text-align:center;">
+      <div style="font-size:36px;">⚠️</div>
+      <h2 style="margin:14px 0 6px;">เชื่อมฐานข้อมูลไม่สำเร็จ</h2>
+      <p class="muted" style="margin-bottom:6px;">${esc(bootError)}</p>
+      <p class="muted" style="margin-bottom:18px;">เช็คว่ารันไฟล์ SQL สร้างตารางใน Supabase แล้วหรือยัง</p>
+      <button class="btn btn-primary" onclick="bootError=null;boot();">ลองใหม่</button>
+      <button class="btn" style="margin-top:10px;" onclick="bootError=null;db=seed();render();">ใช้โหมดออฟไลน์ไปก่อน</button>
+    </div>`;
+    return;
+  }
+  if(!state.session){ app.innerHTML = renderLogin(); return; }
+  const showNav = !['neworder'].includes(state.view);
+  app.innerHTML = renderTopbar() + `<div class="content ${showNav?'':'no-nav'}">` + renderView() + '</div>' + (showNav?renderNav():'') + (state.toastMsg?`<div class="toast">${esc(state.toastMsg)}</div>`:'');
+  afterRender();
+}
+
+function renderTopbar(){
+  const emp = db.employees.find(e=>e.id===state.session.employeeId);
+  const br = db.branches.find(b=>b.id===state.session.branchId);
+  const isSub = ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','recurring','settings'].includes(state.view);
+  return `<div class="topbar">
+    ${isSub?`<button class="icon-btn" onclick="goTo('${({customerDetail:'customers',employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
+    <div class="topbar-row" style="align-items:center;">
+      <div style="width:34px;flex-shrink:0;"></div>
+      <div style="flex:1;text-align:center;">
+        <p class="topbar-title" style="margin:0;">3P Puff</p>
+        <p class="topbar-sub" style="margin:2px 0 0;">${db.settings.multiBranch?esc(br?br.name:'')+' · ':''}${esc(emp?emp.name:'')}</p>
+      </div>
+      <button class="icon-btn" onclick="logout()" title="ออกจากระบบ" style="flex-shrink:0;">${ICO.logout}</button>
+    </div>
+  </div><div class="pleat"></div>`;
+}
+
+function renderNav(){
+  const items=[
+    {v:'home',ico:ICO.home,label:'วันนี้'},
+    {v:'history',ico:ICO.list,label:'ประวัติ'},
+    {v:'__new',ico:ICO.plus,label:''},
+    {v:'reports',ico:ICO.chart,label:'รายงาน'},
+    {v:'more',ico:ICO.menu,label:'อื่นๆ'},
+  ];
+  return `<div class="navbar">` + items.map(it=>{
+    if(it.v==='__new') return `<button class="nav-item" onclick="openNewOrder()"><span class="fab">${ICO.plus}</span></button>`;
+    const active = state.view===it.v || (it.v==='more' && ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','recurring','settings'].includes(state.view));
+    return `<button class="nav-item ${active?'active':''}" onclick="goTo('${it.v}')">${it.ico}<span>${it.label}</span></button>`;
+  }).join('') + `</div>`;
+}
+
+function renderView(){
+  switch(state.view){
+    case 'home': return renderHome();
+    case 'neworder': return renderOrderForm();
+    case 'history': return renderHistory();
+    case 'reports': return renderReports();
+    case 'more': return renderMore();
+    case 'customers': return renderCustomers();
+    case 'customerDetail': return renderCustomerDetail();
+    case 'employees': return renderEmployees();
+    case 'employeeDetail': return renderEmployeeDetail();
+    case 'products': return renderProducts();
+    case 'productDetail': return renderProductDetail();
+    case 'ingredients': return renderIngredients();
+    case 'ingredientDetail': return renderIngredientDetail();
+    case 'recurring': return renderRecurring();
+    case 'settings': return renderSettings();
+    default: return '';
+  }
+}
+
+/* ---------- LOGIN ---------- */
+function renderLogin(){
+  if(db.employees.length===0){
+    return renderFirstEmployeeSetup();
+  }
+  if(!db.settings.multiBranch){
+    state.loginBranch = db.branches[0] ? db.branches[0].id : null;
+  }
+  if(!state.loginBranch){
+    return `<div class="content" style="padding-top:60px;">
+      <div style="text-align:center;margin-bottom:28px;">
+        <div style="font-size:40px;">🥟</div>
+        <h1 style="font-size:20px;margin-top:8px;">3P กะหรี่ปั๊ป</h1>
+        <p class="muted">เลือกสาขาของคุณ</p>
+      </div>
+      ${db.branches.map(b=>`<div class="card" onclick="selectBranch('${b.id}')" style="cursor:pointer;text-align:center;font-weight:700;font-size:15.5px;">${esc(b.name)}</div>`).join('')}
+    </div>`;
+  }
+  if(!state.loginEmployee){
+    const emps = db.settings.multiBranch ? db.employees.filter(e=>e.branchId===state.loginBranch) : db.employees;
+    return `<div class="content" style="padding-top:40px;">
+      ${db.settings.multiBranch?`<button class="btn btn-ghost" onclick="state.loginBranch=null;render();">${ICO.back} เปลี่ยนสาขา</button>`:''}
+      <div style="text-align:center;margin:${db.settings.multiBranch?'16px':'20px'} 0 18px;">
+        <div style="font-size:36px;">🥟</div>
+        <h2 style="margin-top:8px;">เลือกพนักงาน</h2>
+      </div>
+      ${emps.length===0?`<p class="empty">ยังไม่มีพนักงานในระบบ<br>ไปเพิ่มได้ที่เมนู "จัดการพนักงาน" หลังเข้าสู่ระบบครั้งแรก</p>`:emps.map(e=>`<div class="card" onclick="selectEmployee('${e.id}')" style="cursor:pointer;text-align:center;font-weight:700;font-size:15.5px;">${esc(e.name)}</div>`).join('')}
+    </div>`;
+  }
+  const emp = db.employees.find(e=>e.id===state.loginEmployee);
+  return `<div class="content" style="padding-top:40px;">
+    <button class="btn btn-ghost" onclick="state.loginEmployee=null;state.pinInput='';render();">${ICO.back} เปลี่ยนพนักงาน</button>
+    <div style="text-align:center;margin-top:10px;">
+      <p class="muted">ใส่รหัส PIN ของ</p>
+      <h2>${esc(emp.name)}</h2>
+    </div>
+    <div class="pin-dots">${[0,1,2,3].map(i=>`<div class="pin-dot ${state.pinInput.length>i?'filled':''}"></div>`).join('')}</div>
+    <div class="pin-grid">
+      ${[1,2,3,4,5,6,7,8,9].map(n=>`<button class="pin-key" onclick="pinPress('${n}')">${n}</button>`).join('')}
+      <div></div>
+      <button class="pin-key" onclick="pinPress('0')">0</button>
+      <button class="pin-key" onclick="pinBackspace()">⌫</button>
+    </div>
+  </div>`;
+}
+function renderFirstEmployeeSetup(){
+  return `<div class="content" style="padding-top:50px;">
+    <div style="text-align:center;margin-bottom:22px;">
+      <div style="font-size:40px;">🥟</div>
+      <h1 style="font-size:20px;margin-top:8px;">ยินดีต้อนรับสู่ 3P กะหรี่ปั๊ป</h1>
+      <p class="muted">ตั้งค่าเริ่มต้น: เพิ่มพนักงานคนแรกของคุณ</p>
+    </div>
+    <div class="card">
+      <div class="field"><label>ชื่อร้าน / สาขา</label><input id="fs_branch" value="${esc(db.branches[0]?db.branches[0].name:'ร้าน 3P กะหรี่ปั๊ป')}"></div>
+      <div class="field"><label>ชื่อพนักงาน (คุณ)</label><input id="fs_name" placeholder="เช่น มะลิ"></div>
+      <div class="field"><label>ตั้งรหัส PIN 4 หลัก</label><input id="fs_pin" type="tel" maxlength="4" placeholder="1234"></div>
+      <button class="btn btn-primary btn-block" onclick="completeFirstSetup()">เริ่มใช้งาน</button>
+    </div>
+  </div>`;
+}
+function completeFirstSetup(){
+  const branchName = document.getElementById('fs_branch').value.trim() || 'ร้าน 3P กะหรี่ปั๊ป';
+  const name = document.getElementById('fs_name').value.trim();
+  const pin = document.getElementById('fs_pin').value.trim();
+  if(!name){ toast('กรุณากรอกชื่อพนักงาน'); return; }
+  if(!/^\d{4}$/.test(pin)){ toast('รหัส PIN ต้องเป็นตัวเลข 4 หลัก'); return; }
+  if(db.branches[0]) db.branches[0].name = branchName;
+  const emp = {id:uid('e'), branchId:db.branches[0].id, name, pin};
+  db.employees.push(emp);
+  persist(async ()=>{
+    const { error:e1 } = await sb.from('branches').upsert({id:db.branches[0].id, name:branchName});
+    if(e1) throw e1;
+    const { error:e2 } = await sb.from('employees').insert({id:emp.id, branch_id:emp.branchId, name:emp.name, pin:emp.pin});
+    if(e2) throw e2;
+  });
+  state.session = {branchId:emp.branchId, employeeId:emp.id};
+  state.view='home';
+  render();
+  toast('ตั้งค่าเริ่มต้นเสร็จแล้ว! เพิ่มพนักงานคนอื่นได้ที่เมนู "จัดการพนักงาน"');
+}
+function selectBranch(id){ state.loginBranch=id; render(); }
+function selectEmployee(id){ state.loginEmployee=id; state.pinInput=''; render(); }
+function pinPress(d){
+  if(state.pinInput.length>=4) return;
+  state.pinInput += d;
+  render();
+  if(state.pinInput.length===4){
+    const emp = db.employees.find(e=>e.id===state.loginEmployee);
+    setTimeout(()=>{
+      if(emp.pin===state.pinInput){
+        state.session={branchId:state.loginBranch,employeeId:state.loginEmployee};
+        state.view='home';
+        render();
+      } else {
+        state.pinInput='';
+        toast('รหัส PIN ไม่ถูกต้อง');
+      }
+    },150);
+  }
+}
+function pinBackspace(){ state.pinInput = state.pinInput.slice(0,-1); render(); }
+function logout(){ state.session=null; state.loginBranch=null; state.loginEmployee=null; state.pinInput=''; state.view='login'; render(); }
+function goTo(v){ state.view=v; render(); window.scrollTo(0,0); }
+
+/* ---------- HOME ---------- */
+function visibleOrders(dateFilterFn){
+  return db.orders.filter(o=>{
+    if(o.jobStatus==='cancelled') return false;
+    if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
+    return dateFilterFn(o);
+  });
+}
+function renderHome(){
+  const orders = visibleOrders(o=>o.deliveryDate===state.selectedDate).sort((a,b)=>a.createdAt-b.createdAt);
+  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0),0);
+  const byProduct = {};
+  orders.forEach(o=>o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; }));
+  const sortedProd = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]);
+
+  return `
+  <div class="pill-row">
+    <div class="pill ${state.selectedDate===todayISO()?'active':''}" onclick="setDate('${todayISO()}')">วันนี้</div>
+    <div class="pill ${state.selectedDate===addDays(todayISO(),1)?'active':''}" onclick="setDate('${addDays(todayISO(),1)}')">พรุ่งนี้</div>
+    <div class="pill ${state.selectedDate===addDays(todayISO(),-1)?'active':''}" onclick="setDate('${addDays(todayISO(),-1)}')">เมื่อวาน</div>
+    <div class="pill" style="display:flex;align-items:center;">
+      <input type="date" value="${state.selectedDate}" oninput="setDate(this.value)" style="border:none;padding:0;width:120px;font-size:13px;font-weight:700;color:var(--ink-soft);background:transparent;">
+    </div>
+  </div>
+  <p class="muted" style="margin-bottom:10px;">${thaiDate(state.selectedDate)}</p>
+
+  ${db.settings.multiBranch?`
+  <div class="row" style="margin-bottom:10px;">
+    <h3 style="margin:0;">${state.branchScope==='mine'?'สาขาของฉัน':'ทุกสาขา'}</h3>
+    <div style="display:flex;gap:6px;">
+      <button class="btn btn-sm ${state.branchScope==='mine'?'btn-primary':''}" onclick="state.branchScope='mine';render();">สาขาฉัน</button>
+      <button class="btn btn-sm ${state.branchScope==='all'?'btn-primary':''}" onclick="state.branchScope='all';render();">ทุกสาขา</button>
+    </div>
+  </div>
+  `:''}
+
+  <div class="card">
+    <p class="label-sm">ยอดรวมวันนี้</p>
+    <p class="big-number">${totalQty.toLocaleString()} <span style="font-size:16px;color:var(--ink-soft);font-weight:700;">ชิ้น</span></p>
+    ${sortedProd.length? `<div class="divider"></div>` + sortedProd.map(([pid,qty])=>{
+      const p = db.products.find(x=>x.id===pid);
+      return `<div class="row" style="padding:4px 0;"><span style="font-size:14px;">${esc(p?p.name:'?')}</span><b>${qty.toLocaleString()} ชิ้น</b></div>`;
+    }).join('') : `<p class="muted" style="margin-top:8px;">ยังไม่มีออเดอร์วันนี้</p>`}
+  </div>
+
+  <h3>รายการออเดอร์ (${orders.length})</h3>
+  ${orders.length===0? `<div class="empty">ยังไม่มีออเดอร์สำหรับวันนี้<br><br><button class="btn btn-primary" onclick="openNewOrder()">+ สร้างออเดอร์ใหม่</button></div>` :
+    orders.map(o=>renderOrderCard(o)).join('')}
+  `;
+}
+function setDate(d){ state.selectedDate=d; render(); }
+
+function statusBadge(job){
+  const map={pending:['badge-pending','รอทำ'],in_progress:['badge-progress','กำลังทำ'],delivered:['badge-done','ส่งแล้ว'],cancelled:['badge-cancel','ยกเลิก']};
+  const [cls,label]=map[job]||map.pending;
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function payBadge(pay){
+  return pay==='paid' ? `<span class="badge badge-paid">จ่ายแล้ว</span>` : `<span class="badge badge-unpaid">ค้างจ่าย</span>`;
+}
+function renderOrderCard(o){
+  const cust = db.customers.find(c=>c.id===o.customerId);
+  const emp = db.employees.find(e=>e.id===o.employeeId);
+  const qty = o.items.reduce((s,i)=>s+i.qty,0);
+  const total = o.items.reduce((s,i)=>s+i.qty*i.price,0);
+  return `<div class="card" style="cursor:pointer;" onclick="openEditOrder('${o.id}')">
+    <div class="row">
+      <div class="col">
+        <span style="font-weight:700;font-size:15px;">${esc(cust?cust.name:'ลูกค้า')}</span>
+        <span class="muted">${qty} ชิ้น · ${money(total)} บาท · โดย ${esc(emp?emp.name:'-')}</span>
+      </div>
+      <div class="col" style="align-items:flex-end;">
+        ${statusBadge(o.jobStatus)}
+        ${payBadge(o.paymentStatus)}
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="row" onclick="event.stopPropagation();">
+      <select onchange="quickStatus('${o.id}',this.value)" style="width:auto;flex:1;padding:7px 8px;font-size:13px;">
+        <option value="pending" ${o.jobStatus==='pending'?'selected':''}>รอทำ</option>
+        <option value="in_progress" ${o.jobStatus==='in_progress'?'selected':''}>กำลังทำ</option>
+        <option value="delivered" ${o.jobStatus==='delivered'?'selected':''}>ส่งแล้ว</option>
+      </select>
+      <button class="btn btn-sm ${o.paymentStatus==='paid'?'btn-success':'btn-danger'}" onclick="quickPay('${o.id}')" style="flex-shrink:0;">
+        ${o.paymentStatus==='paid'?'จ่ายแล้ว':'กดว่าจ่ายแล้ว'}
+      </button>
+    </div>
+  </div>`;
+}
+function quickStatus(id,val){
+  const o=db.orders.find(x=>x.id===id); o.jobStatus=val;
+  persist(async ()=>{ const { error } = await sb.from('orders').update({job_status:val}).eq('id',id); if(error) throw error; });
+  render(); toast('อัปเดตสถานะแล้ว');
+}
+function quickPay(id){
+  const o=db.orders.find(x=>x.id===id);
+  if(o.paymentStatus!=='paid'){
+    o.paymentStatus='paid'; o.paymentMethod=o.paymentMethod||'cash';
+    persist(async ()=>{ const { error } = await sb.from('orders').update({payment_status:'paid', payment_method:o.paymentMethod}).eq('id',id); if(error) throw error; });
+    toast('บันทึกว่าจ่ายแล้ว'); render();
+  }
+}
+
+/* ---------- ORDER FORM (new/edit) ---------- */
+function openNewOrder(){
+  if(db.products.filter(p=>p.active!==false).length===0){
+    toast('กรุณาเพิ่มไส้กะหรี่ปั๊ปก่อนสร้างออเดอร์');
+    goTo('products');
+    return;
+  }
+  state.orderForm = {
+    id:null, branchId:state.session.branchId, customerId:null, employeeId:state.session.employeeId,
+    deliveryDate: state.selectedDate, jobStatus:'pending', paymentStatus:'unpaid', paymentMethod:null,
+    items:[{productId:db.products.find(p=>p.active!==false).id, qty:1}],
+  };
+  state.customerSearch=''; state.showNewCustomer=false; state.newCustomerDraft=null;
+  goTo('neworder');
+}
+function openEditOrder(id){
+  const o = db.orders.find(x=>x.id===id);
+  state.orderForm = JSON.parse(JSON.stringify(o));
+  const cust = db.customers.find(c=>c.id===o.customerId);
+  state.customerSearch = cust?cust.name:'';
+  state.showNewCustomer=false; state.newCustomerDraft=null;
+  goTo('neworder');
+}
+function renderOrderForm(){
+  const f = state.orderForm;
+  const isEdit = !!f.id;
+  const emps = db.employees.filter(e=>e.branchId===f.branchId);
+  const total = f.items.reduce((s,i)=>{ const p=db.products.find(x=>x.id===i.productId); return s + (i.qty*(p?p.price:0)); },0);
+
+  const matches = (!f.customerId && state.customerSearch.trim().length>0) ? db.customers.filter(c=>
+    (c.name+c.phone).toLowerCase().includes(state.customerSearch.toLowerCase())
+  ).slice(0,6) : [];
+
+  return `
+  <button class="btn btn-ghost" onclick="cancelOrderForm()">${ICO.back} กลับ</button>
+
+  <h3>ลูกค้า</h3>
+  <div class="card">
+    ${!state.showNewCustomer ? `
+      <div class="search-wrap">
+        <input type="text" placeholder="ค้นหาชื่อหรือเบอร์โทรลูกค้า" value="${esc(state.customerSearch)}"
+          oninput="state.customerSearch=this.value; if(f_customerId_cleared()) render();" />
+        ${matches.length ? `<div class="search-results">${matches.map(c=>`
+          <div class="search-result-item" onclick="pickCustomer('${c.id}')"><b>${esc(c.name)}</b><br><span class="muted">${esc(c.phone)} · ${c.type==='recurring'?'ลูกค้าประจำ':'ลูกค้าทั่วไป'}</span></div>
+        `).join('')}</div>` : ''}
+      </div>
+      ${f.customerId ? (()=>{ const c=db.customers.find(x=>x.id===f.customerId); return c?`<div class="muted" style="margin-top:8px;">📍 ${esc(c.address||'-')}</div>`:''; })() : ''}
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px;padding-left:0;" onclick="state.showNewCustomer=true;state.newCustomerDraft={name:'',phone:'',address:'',type:'individual'};render();">+ เพิ่มลูกค้าใหม่</button>
+    ` : `
+      <div class="field"><label>ชื่อลูกค้า</label><input id="nc_name" value="${esc(state.newCustomerDraft.name)}" oninput="state.newCustomerDraft.name=this.value"></div>
+      <div class="field"><label>เบอร์โทร</label><input id="nc_phone" value="${esc(state.newCustomerDraft.phone)}" oninput="state.newCustomerDraft.phone=this.value"></div>
+      <div class="field"><label>ที่อยู่จัดส่ง</label><textarea rows="2" oninput="state.newCustomerDraft.address=this.value">${esc(state.newCustomerDraft.address)}</textarea></div>
+      <div class="field">
+        <label>ประเภทลูกค้า</label>
+        <select onchange="state.newCustomerDraft.type=this.value">
+          <option value="individual">ลูกค้าทั่วไป</option>
+          <option value="recurring">ลูกค้าประจำ (สั่งซ้ำทุกสัปดาห์)</option>
+        </select>
+      </div>
+      <div class="row">
+        <button class="btn btn-sm" onclick="state.showNewCustomer=false;render();">ยกเลิก</button>
+        <button class="btn btn-primary btn-sm" onclick="confirmNewCustomer()">บันทึกลูกค้า</button>
+      </div>
+    `}
+  </div>
+
+  <h3>รายการไส้</h3>
+  <div class="card">
+    ${db.products.filter(p=>p.active!==false).length===0 ? `
+      <p class="muted" style="margin-bottom:10px;">ยังไม่มีไส้ในระบบ ต้องเพิ่มไส้ก่อนถึงจะสร้างออเดอร์ได้</p>
+      <button class="btn btn-primary btn-block" onclick="goTo('products')">+ ไปเพิ่มไส้กะหรี่ปั๊ป</button>
+    ` : `
+    ${f.items.map((it,idx)=>`
+      <div class="order-item-row">
+        <select onchange="setItemProduct(${idx},this.value)">
+          ${db.products.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${it.productId===p.id?'selected':''}>${esc(p.name)} (${money(p.price)}฿)</option>`).join('')}
+        </select>
+        <div class="qty-box">
+          <button onclick="stepQty(${idx},-1)">−</button>
+          <input type="number" value="${it.qty}" oninput="setItemQty(${idx},this.value)">
+          <button onclick="stepQty(${idx},1)">+</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="removeItem(${idx})">${ICO.trash}</button>
+      </div>
+    `).join('')}
+    <button class="btn btn-sm" onclick="addItem()">+ เพิ่มไส้</button>
+    <div class="divider"></div>
+    <div class="row"><b>รวมทั้งหมด</b><b>${money(total)} บาท</b></div>
+    `}
+  </div>
+
+  <h3>รายละเอียดออเดอร์</h3>
+  <div class="card">
+    <div class="field"><label>วันที่ส่ง</label><input type="date" value="${f.deliveryDate}" oninput="state.orderForm.deliveryDate=this.value"></div>
+    <div class="field"><label>พนักงานขาย</label>
+      <select onchange="state.orderForm.employeeId=this.value">${emps.map(e=>`<option value="${e.id}" ${f.employeeId===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>สถานะการจ่ายเงิน</label>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ${f.paymentStatus==='unpaid'?'btn-danger':''}" style="flex:1;" onclick="state.orderForm.paymentStatus='unpaid';render();">ค้างจ่าย (ส่งก่อน)</button>
+        <button class="btn ${f.paymentStatus==='paid'?'btn-success':''}" style="flex:1;" onclick="state.orderForm.paymentStatus='paid';if(!state.orderForm.paymentMethod)state.orderForm.paymentMethod='cash';render();">จ่ายแล้ว</button>
+      </div>
+    </div>
+    ${f.paymentStatus==='paid'?`
+      <div class="field"><label>วิธีจ่าย</label>
+        <select onchange="state.orderForm.paymentMethod=this.value">
+          <option value="cash" ${f.paymentMethod==='cash'?'selected':''}>เงินสด</option>
+          <option value="qr" ${f.paymentMethod==='qr'?'selected':''}>QR PromptPay</option>
+        </select>
+      </div>` : `<button class="btn btn-block" onclick="showQR('${f.id||'draft'}',${total})">${ICO.qr} สร้าง QR PromptPay (${money(total)} บาท)</button>`}
+  </div>
+
+  ${isEdit?`
+  <h3>สถานะงาน</h3>
+  <div class="card">
+    <select onchange="state.orderForm.jobStatus=this.value">
+      <option value="pending" ${f.jobStatus==='pending'?'selected':''}>รอทำ</option>
+      <option value="in_progress" ${f.jobStatus==='in_progress'?'selected':''}>กำลังทำ</option>
+      <option value="delivered" ${f.jobStatus==='delivered'?'selected':''}>ส่งแล้ว</option>
+    </select>
+  </div>` : ''}
+
+  <button class="btn btn-primary btn-block" style="margin-top:8px;" onclick="saveOrder()">${isEdit?'บันทึกการแก้ไข':'บันทึกออเดอร์'}</button>
+  ${isEdit?`
+  <div style="display:flex;gap:8px;margin-top:10px;">
+    <button class="btn" style="flex:1;" onclick="printOrder('${f.id}')">${ICO.print} ปริ้นใบออเดอร์</button>
+    <button class="btn btn-danger" style="flex:1;" onclick="cancelOrder('${f.id}')">${ICO.trash} ยกเลิกออเดอร์</button>
+  </div>`:''}
+
+  ${state.qrOrderId ? renderQRModal(total) : ''}
+  `;
+}
+function f_customerId_cleared(){ state.orderForm.customerId=null; return true; }
+function pickCustomer(id){
+  const c = db.customers.find(x=>x.id===id);
+  state.orderForm.customerId = id;
+  state.customerSearch = c.name;
+  render();
+}
+function confirmNewCustomer(){
+  const d = state.newCustomerDraft;
+  if(!d.name.trim()){ toast('กรุณากรอกชื่อลูกค้า'); return; }
+  const c = {id:uid('c'), name:d.name.trim(), phone:d.phone.trim(), address:d.address.trim(), type:d.type, branchId:state.session.branchId};
+  db.customers.push(c);
+  state.orderForm.customerId = c.id;
+  state.customerSearch = c.name;
+  state.showNewCustomer = false;
+  persist(async ()=>{
+    const { error } = await sb.from('customers').insert({id:c.id, name:c.name, phone:c.phone, address:c.address, type:c.type, branch_id:c.branchId});
+    if(error) throw error;
+  });
+  render();
+  toast('เพิ่มลูกค้าใหม่แล้ว');
+}
+function addItem(){ state.orderForm.items.push({productId:db.products[0].id,qty:1}); render(); }
+function removeItem(idx){ if(state.orderForm.items.length<=1){ toast('ต้องมีอย่างน้อย 1 รายการ'); return; } state.orderForm.items.splice(idx,1); render(); }
+function setItemProduct(idx,val){ state.orderForm.items[idx].productId=val; render(); }
+function setItemQty(idx,val){ state.orderForm.items[idx].qty = Math.max(0, parseInt(val)||0); render(); }
+function stepQty(idx,delta){ const it=state.orderForm.items[idx]; it.qty=Math.max(0,it.qty+delta); render(); }
+function cancelOrderForm(){ state.orderForm=null; goTo('home'); }
+function saveOrder(){
+  const f = state.orderForm;
+  if(!f.customerId){ toast('กรุณาเลือกหรือเพิ่มลูกค้า'); return; }
+  if(f.items.some(i=>i.qty<=0)){ toast('จำนวนชิ้นต้องมากกว่า 0'); return; }
+  f.items = f.items.map(i=>{ const p=db.products.find(x=>x.id===i.productId); return {productId:i.productId, qty:i.qty, price:p?p.price:0}; });
+  if(f.id){
+    const idx = db.orders.findIndex(o=>o.id===f.id);
+    db.orders[idx] = f;
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    f.id = uid('o');
+    f.createdAt = Date.now();
+    db.orders.push(f);
+    toast('สร้างออเดอร์แล้ว');
+  }
+  persist(async ()=>{
+    const { error:e1 } = await sb.from('orders').upsert({
+      id:f.id, branch_id:f.branchId, customer_id:f.customerId, employee_id:f.employeeId,
+      delivery_date:f.deliveryDate, job_status:f.jobStatus, payment_status:f.paymentStatus,
+      payment_method:f.paymentMethod, created_at:f.createdAt,
+    });
+    if(e1) throw e1;
+    await sb.from('order_items').delete().eq('order_id', f.id);
+    const { error:e2 } = await sb.from('order_items').insert(f.items.map(i=>({order_id:f.id, product_id:i.productId, qty:i.qty, price:i.price})));
+    if(e2) throw e2;
+  });
+  state.orderForm=null;
+  goTo('home');
+}
+function cancelOrder(id){
+  if(!confirm('ยืนยันยกเลิกออเดอร์นี้?')) return;
+  const o = db.orders.find(x=>x.id===id);
+  o.jobStatus='cancelled';
+  persist(async ()=>{ const { error } = await sb.from('orders').update({job_status:'cancelled'}).eq('id',id); if(error) throw error; });
+  state.orderForm=null;
+  goTo('history');
+  toast('ยกเลิกออเดอร์แล้ว');
+}
+function showQR(orderId,total){ state.qrOrderId=orderId||'draft'; state._qrTotal=total; render(); }
+function closeQR(){ state.qrOrderId=null; render(); }
+function renderQRModal(total){
+  return `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:50;max-width:480px;margin:0 auto;" onclick="if(event.target===this)closeQR()">
+    <div class="card" style="width:280px;text-align:center;">
+      <p class="label-sm">สแกนจ่ายผ่าน PromptPay</p>
+      <div id="qrcode-holder" style="display:flex;justify-content:center;margin:14px 0;"></div>
+      <p style="font-weight:700;font-size:18px;">${money(total)} บาท</p>
+      <p class="muted" style="margin:6px 0 14px;">${esc(db.settings.promptpayId)}</p>
+      <button class="btn btn-success btn-block" onclick="markPaidFromQR()">ยืนยันว่าลูกค้าจ่ายแล้ว</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:6px;" onclick="closeQR()">ปิด</button>
+    </div>
+  </div>`;
+}
+function markPaidFromQR(){
+  if(state.orderForm){ state.orderForm.paymentStatus='paid'; state.orderForm.paymentMethod='qr'; }
+  state.qrOrderId=null;
+  render();
+  toast('บันทึกว่าจ่ายแล้ว');
+}
+function printOrder(id){
+  const o = db.orders.find(x=>x.id===id);
+  const cust = db.customers.find(c=>c.id===o.customerId);
+  const rows = o.items.map(i=>{ const p=db.products.find(x=>x.id===i.productId); return `<tr><td>${esc(p?p.name:'')}</td><td style="text-align:right;">${i.qty}</td><td style="text-align:right;">${money(i.qty*i.price)}</td></tr>`; }).join('');
+  const total = o.items.reduce((s,i)=>s+i.qty*i.price,0);
+  document.getElementById('printArea').innerHTML = `
+    <div style="font-family:Tahoma,sans-serif;max-width:380px;">
+      <h2 style="margin:0 0 4px;">3P กะหรี่ปั๊ป</h2>
+      <p style="margin:0 0 10px;">ใบออเดอร์ #${o.id}</p>
+      <p style="margin:0;">ลูกค้า: ${esc(cust?cust.name:'-')}</p>
+      <p style="margin:0;">โทร: ${esc(cust?cust.phone:'-')}</p>
+      <p style="margin:0 0 10px;">ที่อยู่: ${esc(cust?cust.address:'-')}</p>
+      <p style="margin:0 0 10px;">วันที่ส่ง: ${thaiDate(o.deliveryDate)}</p>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr style="border-bottom:1px solid #000;"><th style="text-align:left;">ไส้</th><th style="text-align:right;">จำนวน</th><th style="text-align:right;">ราคา</th></tr>
+        ${rows}
+      </table>
+      <p style="text-align:right;font-weight:bold;margin-top:8px;">รวม ${money(total)} บาท</p>
+      <p style="margin-top:14px;">สถานะจ่ายเงิน: ${o.paymentStatus==='paid'?'จ่ายแล้ว':'ค้างจ่าย'}</p>
+    </div>`;
+  document.getElementById('printArea').style.display='block';
+  setTimeout(()=>{ window.print(); document.getElementById('printArea').style.display='none'; }, 100);
+}
+
+/* ---------- HISTORY ---------- */
+function renderHistory(){
+  const hf = state.historyFilter;
+  const orders = db.orders.filter(o=>{
+    if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
+    if(o.deliveryDate<hf.from || o.deliveryDate>hf.to) return false;
+    if(hf.q){
+      const cust = db.customers.find(c=>c.id===o.customerId);
+      const q = hf.q.toLowerCase();
+      if(!(cust && (cust.name.toLowerCase().includes(q)||cust.phone.includes(q)))) return false;
+    }
+    return true;
+  }).sort((a,b)=>b.deliveryDate.localeCompare(a.deliveryDate) || b.createdAt-a.createdAt);
+
+  return `
+  <div class="card">
+    <div class="field" style="margin-bottom:10px;"><label>ค้นหาลูกค้า</label><input value="${esc(hf.q)}" oninput="hf.q=this.value; render();" placeholder="ชื่อหรือเบอร์โทร"></div>
+    <div style="display:flex;gap:8px;">
+      <div class="field" style="flex:1;margin-bottom:0;"><label>ตั้งแต่</label><input type="date" value="${hf.from}" oninput="hf.from=this.value;render();"></div>
+      <div class="field" style="flex:1;margin-bottom:0;"><label>ถึง</label><input type="date" value="${hf.to}" oninput="hf.to=this.value;render();"></div>
+    </div>
+  </div>
+  <p class="muted" style="margin-bottom:8px;">พบ ${orders.length} ออเดอร์</p>
+  ${orders.length===0?`<div class="empty">ไม่พบออเดอร์ในช่วงที่เลือก</div>`:orders.map(o=>renderOrderCard(o)).join('')}
+  `;
+}
+const hf = state.historyFilter;
+
+/* ---------- CUSTOMERS ---------- */
+function renderCustomers(){
+  const list = db.customers.filter(c=>state.branchScope==='all' || c.branchId===state.session.branchId);
+  return `
+  <button class="btn btn-primary btn-block" onclick="openCustomerDetail(null)">+ เพิ่มลูกค้าใหม่</button>
+  <div style="height:12px;"></div>
+  ${list.length===0?`<div class="empty">ยังไม่มีลูกค้า</div>`:list.map(c=>`
+    <div class="card" style="cursor:pointer;" onclick="openCustomerDetail('${c.id}')">
+      <div class="row">
+        <div class="col"><b>${esc(c.name)}</b><span class="muted">${esc(c.phone)}</span></div>
+        <span class="badge ${c.type==='recurring'?'badge-progress':'badge-pending'}">${c.type==='recurring'?'ลูกค้าประจำ':'ลูกค้าทั่วไป'}</span>
+      </div>
+      <p class="muted" style="margin-top:6px;">📍 ${esc(c.address||'-')}</p>
+    </div>
+  `).join('')}
+  `;
+}
+function openCustomerDetail(id){
+  if(id){
+    const c = db.customers.find(x=>x.id===id);
+    state.customerForm = JSON.parse(JSON.stringify(c));
+  } else {
+    state.customerForm = {id:null, name:'', phone:'', address:'', type:'individual', branchId:state.session.branchId};
+  }
+  goTo('customerDetail');
+}
+function renderCustomerDetail(){
+  const c = state.customerForm;
+  const isEdit = !!c.id;
+  return `
+  <button class="btn btn-ghost" onclick="goTo('customers')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="field"><label>ชื่อลูกค้า</label><input value="${esc(c.name)}" oninput="state.customerForm.name=this.value"></div>
+    <div class="field"><label>เบอร์โทร</label><input value="${esc(c.phone)}" oninput="state.customerForm.phone=this.value"></div>
+    <div class="field"><label>ที่อยู่จัดส่ง</label><textarea rows="2" oninput="state.customerForm.address=this.value">${esc(c.address)}</textarea></div>
+    <div class="field"><label>ประเภทลูกค้า</label>
+      <select onchange="state.customerForm.type=this.value">
+        <option value="individual" ${c.type==='individual'?'selected':''}>ลูกค้าทั่วไป</option>
+        <option value="recurring" ${c.type==='recurring'?'selected':''}>ลูกค้าประจำ (สั่งซ้ำทุกสัปดาห์)</option>
+      </select>
+    </div>
+  </div>
+  <button class="btn btn-primary btn-block" onclick="saveCustomerDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มลูกค้า'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteCustomerDetail()">${ICO.trash} ลบลูกค้านี้</button>`:''}
+  `;
+}
+function saveCustomerDetail(){
+  const c = state.customerForm;
+  if(!c.name.trim()){ toast('กรุณากรอกชื่อลูกค้า'); return; }
+  if(c.id){
+    const idx = db.customers.findIndex(x=>x.id===c.id);
+    db.customers[idx] = c;
+    persist(async ()=>{ const { error } = await sb.from('customers').update({name:c.name, phone:c.phone, address:c.address, type:c.type}).eq('id',c.id); if(error) throw error; });
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    c.id = uid('c');
+    db.customers.push(c);
+    persist(async ()=>{ const { error } = await sb.from('customers').insert({id:c.id, name:c.name, phone:c.phone, address:c.address, type:c.type, branch_id:c.branchId}); if(error) throw error; });
+    toast('เพิ่มลูกค้าแล้ว');
+  }
+  goTo('customers');
+}
+function deleteCustomerDetail(){
+  const c = state.customerForm;
+  if(!confirm('ยืนยันลบลูกค้านี้? (ประวัติออเดอร์เก่าจะยังอยู่)')) return;
+  db.customers = db.customers.filter(x=>x.id!==c.id);
+  persist(async ()=>{ const { error } = await sb.from('customers').delete().eq('id',c.id); if(error) throw error; });
+  toast('ลบลูกค้าแล้ว');
+  goTo('customers');
+}
+
+/* ---------- INGREDIENTS (วัตถุดิบ) ---------- */
+function renderIngredients(){
+  return `
+  <button class="btn btn-primary btn-block" onclick="openIngredientDetail(null)">+ เพิ่มวัตถุดิบ</button>
+  <div style="height:12px;"></div>
+  ${db.ingredients.length===0?`<div class="empty">ยังไม่มีวัตถุดิบในระบบ</div>`:db.ingredients.map(i=>`
+    <div class="card" style="cursor:pointer;" onclick="openIngredientDetail('${i.id}')">
+      <div class="row">
+        <b>${esc(i.name)}</b>
+        <span class="muted">${money(i.costPerUnit)} บาท/${esc(i.unit)}</span>
+      </div>
+    </div>
+  `).join('')}
+  `;
+}
+function openIngredientDetail(id){
+  if(id){
+    const i = db.ingredients.find(x=>x.id===id);
+    state.ingredientForm = JSON.parse(JSON.stringify(i));
+  } else {
+    state.ingredientForm = {id:null, name:'', unit:'g', costPerUnit:0};
+  }
+  goTo('ingredientDetail');
+}
+function renderIngredientDetail(){
+  const i = state.ingredientForm;
+  const isEdit = !!i.id;
+  return `
+  <button class="btn btn-ghost" onclick="goTo('ingredients')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="field"><label>ชื่อวัตถุดิบ</label><input value="${esc(i.name)}" oninput="state.ingredientForm.name=this.value" placeholder="เช่น แป้งสาลี"></div>
+    <div class="field"><label>หน่วยนับ</label>
+      <select onchange="state.ingredientForm.unit=this.value">
+        ${['g','kg','ml','l','ชิ้น'].map(u=>`<option value="${u}" ${i.unit===u?'selected':''}>${u}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>ต้นทุนต่อหน่วย (บาท)</label><input type="number" step="0.01" value="${i.costPerUnit}" oninput="state.ingredientForm.costPerUnit=parseFloat(this.value)||0"></div>
+  </div>
+  <button class="btn btn-primary btn-block" onclick="saveIngredientDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มวัตถุดิบ'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteIngredientDetail()">${ICO.trash} ลบวัตถุดิบนี้</button>`:''}
+  `;
+}
+function saveIngredientDetail(){
+  const i = state.ingredientForm;
+  if(!i.name.trim()){ toast('กรุณากรอกชื่อวัตถุดิบ'); return; }
+  if(i.id){
+    const idx = db.ingredients.findIndex(x=>x.id===i.id);
+    db.ingredients[idx] = i;
+    persist(async ()=>{ const { error } = await sb.from('ingredients').update({name:i.name, unit:i.unit, cost_per_unit:i.costPerUnit}).eq('id',i.id); if(error) throw error; });
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    i.id = uid('ing');
+    db.ingredients.push(i);
+    persist(async ()=>{ const { error } = await sb.from('ingredients').insert({id:i.id, name:i.name, unit:i.unit, cost_per_unit:i.costPerUnit}); if(error) throw error; });
+    toast('เพิ่มวัตถุดิบแล้ว');
+  }
+  goTo('ingredients');
+}
+function deleteIngredientDetail(){
+  const i = state.ingredientForm;
+  if(!confirm('ยืนยันลบวัตถุดิบนี้? (จะถูกเอาออกจากสูตรของไส้ที่ใช้อยู่ด้วย)')) return;
+  db.ingredients = db.ingredients.filter(x=>x.id!==i.id);
+  db.products.forEach(p=>{ p.recipe = (p.recipe||[]).filter(r=>r.ingredientId!==i.id); });
+  persist(async ()=>{ const { error } = await sb.from('ingredients').delete().eq('id',i.id); if(error) throw error; });
+  toast('ลบวัตถุดิบแล้ว');
+  goTo('ingredients');
+}
+
+/* ---------- PRODUCTS ---------- */
+function renderProducts(){
+  return `
+  <button class="btn btn-primary btn-block" onclick="openProductDetail(null)">+ เพิ่มไส้ใหม่</button>
+  <div style="height:12px;"></div>
+  ${db.products.length===0?`<div class="empty">ยังไม่มีไส้ในระบบ</div>`:db.products.map(p=>`
+    <div class="card" style="cursor:pointer;" onclick="openProductDetail('${p.id}')">
+      <div class="row">
+        <div class="col"><b>${esc(p.name)}</b><span class="muted">ราคาขาย ${money(p.price)}฿ · ต้นทุน ${money(p.cost)}฿${p.recipe&&p.recipe.length?` · ${p.recipe.length} วัตถุดิบ`:''}</span></div>
+        <span class="badge ${p.active===false?'badge-cancel':'badge-done'}">${p.active===false?'ปิดขายอยู่':'เปิดขายอยู่'}</span>
+      </div>
+    </div>
+  `).join('')}
+  `;
+}
+function openProductDetail(id){
+  if(id){
+    const p = db.products.find(x=>x.id===id);
+    state.productForm = JSON.parse(JSON.stringify(p));
+    if(!state.productForm.recipe) state.productForm.recipe=[];
+  } else {
+    state.productForm = {id:null, name:'', price:15, cost:0, active:true, recipe:[]};
+  }
+  goTo('productDetail');
+}
+function recipeComputedCost(p){
+  return (p.recipe||[]).reduce((s,r)=>{ const ing=db.ingredients.find(i=>i.id===r.ingredientId); return s + (ing?ing.costPerUnit*r.amount:0); },0);
+}
+function renderProductDetail(){
+  const p = state.productForm;
+  const isEdit = !!p.id;
+  const computed = recipeComputedCost(p);
+  return `
+  <button class="btn btn-ghost" onclick="goTo('products')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="field"><label>ชื่อไส้</label><input value="${esc(p.name)}" oninput="state.productForm.name=this.value" placeholder="เช่น ไส้ไก่"></div>
+    <div class="field"><label>ราคาขายต่อชิ้น (บาท)</label><input type="number" step="0.01" value="${p.price}" oninput="state.productForm.price=parseFloat(this.value)||0"></div>
+    <div class="field"><label>ต้นทุนต่อชิ้น (บาท)</label><input type="number" step="0.01" value="${p.cost}" oninput="state.productForm.cost=parseFloat(this.value)||0"></div>
+    <div class="row">
+      <span class="muted">สถานะขาย</span>
+      <button class="btn btn-sm ${p.active===false?'':'btn-success'}" onclick="state.productForm.active=(state.productForm.active===false); render();">${p.active===false?'ปิดขายอยู่ (กดเพื่อเปิด)':'เปิดขายอยู่ (กดเพื่อปิด)'}</button>
+    </div>
+  </div>
+
+  <h3>สูตร / วัตถุดิบที่ใช้ต่อชิ้น</h3>
+  <div class="card">
+    ${db.ingredients.length===0?`
+      <p class="muted" style="margin-bottom:10px;">ยังไม่มีวัตถุดิบในระบบ ต้องเพิ่มวัตถุดิบก่อนถึงจะกำหนดสูตรได้</p>
+      <button class="btn btn-block" onclick="goTo('ingredients')">+ ไปเพิ่มวัตถุดิบ</button>
+    `:`
+      ${(p.recipe||[]).map((r,idx)=>{
+        const ing = db.ingredients.find(i=>i.id===r.ingredientId);
+        return `<div class="order-item-row">
+          <select onchange="setRecipeIngredient(${idx},this.value)">
+            ${db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+          </select>
+          <div class="qty-box" style="flex:1;">
+            <input type="number" step="0.1" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
+          </div>
+          <span class="muted" style="width:34px;flex-shrink:0;">${esc(ing?ing.unit:'')}</span>
+          <button class="btn btn-ghost btn-sm" onclick="removeRecipeItem(${idx})">${ICO.trash}</button>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-sm" onclick="addRecipeItem()">+ เพิ่มวัตถุดิบในสูตร</button>
+      ${(p.recipe||[]).length>0?`
+        <div class="divider"></div>
+        <div class="row"><span>ต้นทุนคำนวณจากสูตร</span><b>${money(computed)} บาท</b></div>
+        <button class="btn btn-sm btn-block" style="margin-top:8px;" onclick="state.productForm.cost=${computed};render();">ใช้ค่านี้เป็นต้นทุนต่อชิ้น</button>
+      `:''}
+    `}
+  </div>
+
+  <button class="btn btn-primary btn-block" onclick="saveProductDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มไส้ใหม่'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteProductDetail()">${ICO.trash} ลบไส้นี้</button>`:''}
+  `;
+}
+function addRecipeItem(){
+  if(!state.productForm.recipe) state.productForm.recipe=[];
+  state.productForm.recipe.push({ingredientId:db.ingredients[0].id, amount:1});
+  render();
+}
+function setRecipeIngredient(idx,val){ state.productForm.recipe[idx].ingredientId=val; render(); }
+function setRecipeAmount(idx,val){ state.productForm.recipe[idx].amount=parseFloat(val)||0; render(); }
+function removeRecipeItem(idx){ state.productForm.recipe.splice(idx,1); render(); }
+function saveProductDetail(){
+  const p = state.productForm;
+  if(!p.name.trim()){ toast('กรุณากรอกชื่อไส้'); return; }
+  if(p.id){
+    const idx = db.products.findIndex(x=>x.id===p.id);
+    db.products[idx] = p;
+    persist(async ()=>{
+      const { error:e1 } = await sb.from('products').update({name:p.name, price:p.price, cost:p.cost, active:p.active}).eq('id',p.id);
+      if(e1) throw e1;
+      await sb.from('recipe_items').delete().eq('product_id',p.id);
+      if(p.recipe && p.recipe.length){
+        const { error:e2 } = await sb.from('recipe_items').insert(p.recipe.map(r=>({product_id:p.id, ingredient_id:r.ingredientId, amount:r.amount})));
+        if(e2) throw e2;
+      }
+    });
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    p.id = uid('p');
+    db.products.push(p);
+    persist(async ()=>{
+      const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.price, cost:p.cost, active:p.active});
+      if(e1) throw e1;
+      if(p.recipe && p.recipe.length){
+        const { error:e2 } = await sb.from('recipe_items').insert(p.recipe.map(r=>({product_id:p.id, ingredient_id:r.ingredientId, amount:r.amount})));
+        if(e2) throw e2;
+      }
+    });
+    toast('เพิ่มไส้ใหม่แล้ว');
+  }
+  goTo('products');
+}
+function deleteProductDetail(){
+  const p = state.productForm;
+  if(!confirm('ยืนยันลบไส้นี้? (ประวัติออเดอร์เก่าจะยังอยู่)')) return;
+  db.products = db.products.filter(x=>x.id!==p.id);
+  persist(async ()=>{ const { error } = await sb.from('products').delete().eq('id',p.id); if(error) throw error; });
+  toast('ลบไส้แล้ว');
+  goTo('products');
+}
+
+/* ---------- EMPLOYEES ---------- */
+function renderEmployees(){
+  const list = db.settings.multiBranch ? db.employees.filter(e=>e.branchId===state.session.branchId) : db.employees;
+  return `
+  <button class="btn btn-primary btn-block" onclick="openEmployeeDetail(null)">+ เพิ่มพนักงาน</button>
+  <div style="height:12px;"></div>
+  ${list.length===0?`<div class="empty">ยังไม่มีพนักงาน</div>`:list.map(e=>`
+    <div class="card" style="cursor:pointer;" onclick="openEmployeeDetail('${e.id}')">
+      <div class="row">
+        <div class="col"><b>${esc(e.name)}</b><span class="muted">PIN: ${esc(e.pin)}</span></div>
+        ${e.id===state.session.employeeId?`<span class="badge badge-progress">กำลังใช้งาน</span>`:''}
+      </div>
+    </div>
+  `).join('')}
+  `;
+}
+function openEmployeeDetail(id){
+  if(id){
+    const e = db.employees.find(x=>x.id===id);
+    state.employeeForm = JSON.parse(JSON.stringify(e));
+  } else {
+    state.employeeForm = {id:null, name:'', pin:'', branchId:state.session.branchId};
+  }
+  goTo('employeeDetail');
+}
+function renderEmployeeDetail(){
+  const e = state.employeeForm;
+  const isEdit = !!e.id;
+  const isSelf = isEdit && e.id===state.session.employeeId;
+  return `
+  <button class="btn btn-ghost" onclick="goTo('employees')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="field"><label>ชื่อพนักงาน</label><input value="${esc(e.name)}" oninput="state.employeeForm.name=this.value"></div>
+    <div class="field"><label>รหัส PIN (4 หลัก)</label><input value="${esc(e.pin)}" maxlength="4" oninput="state.employeeForm.pin=this.value"></div>
+  </div>
+  <button class="btn btn-primary btn-block" onclick="saveEmployeeDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มพนักงาน'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteEmployeeDetail()" ${isSelf?'disabled title="ลบพนักงานที่กำลังใช้งานอยู่ไม่ได้"':''}>${ICO.trash} ลบพนักงานนี้${isSelf?' (กำลังใช้งานอยู่)':''}</button>`:''}
+  `;
+}
+function saveEmployeeDetail(){
+  const e = state.employeeForm;
+  if(!e.name.trim()){ toast('กรุณากรอกชื่อพนักงาน'); return; }
+  if(!/^\d{4}$/.test(e.pin||'')){ toast('รหัส PIN ต้องเป็นตัวเลข 4 หลัก'); return; }
+  if(e.id){
+    const idx = db.employees.findIndex(x=>x.id===e.id);
+    db.employees[idx] = e;
+    persist(async ()=>{ const { error } = await sb.from('employees').update({name:e.name, pin:e.pin}).eq('id',e.id); if(error) throw error; });
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    e.id = uid('e');
+    db.employees.push(e);
+    persist(async ()=>{ const { error } = await sb.from('employees').insert({id:e.id, branch_id:e.branchId, name:e.name, pin:e.pin}); if(error) throw error; });
+    toast('เพิ่มพนักงานแล้ว');
+  }
+  goTo('employees');
+}
+function deleteEmployeeDetail(){
+  const e = state.employeeForm;
+  if(e.id===state.session.employeeId){ toast('ลบพนักงานที่กำลังใช้งานอยู่ไม่ได้'); return; }
+  if(!confirm('ยืนยันลบพนักงานคนนี้?')) return;
+  db.employees = db.employees.filter(x=>x.id!==e.id);
+  persist(async ()=>{ const { error } = await sb.from('employees').delete().eq('id',e.id); if(error) throw error; });
+  toast('ลบพนักงานแล้ว');
+  goTo('employees');
+}
+
+/* ---------- RECURRING ---------- */
+const DOW_NAMES=['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+function renderRecurring(){
+  return `
+  <p class="muted" style="margin-bottom:14px;">ตั้งค่าลูกค้าที่สั่งซ้ำทุกสัปดาห์ (เช่น ร้านกาแฟ/ออฟฟิศ) ระบบจะช่วยสร้างออเดอร์ของสัปดาห์ให้ แล้วแก้จำนวนก่อนยืนยันได้</p>
+
+  ${db.recurringOrders.map(r=>{
+    const cust = db.customers.find(c=>c.id===r.customerId);
+    return `<div class="card">
+      <div class="row">
+        <b>${esc(cust?cust.name:'-')}</b>
+        <span class="badge badge-progress">ทุกวัน${DOW_NAMES[r.dayOfWeek]}</span>
+      </div>
+      <div class="divider"></div>
+      ${r.items.map(i=>{ const p=db.products.find(x=>x.id===i.productId); return `<div class="row" style="padding:3px 0;"><span>${esc(p?p.name:'')}</span><span>${i.defaultQty} ชิ้น</span></div>`; }).join('')}
+      <button class="btn btn-primary btn-block" style="margin-top:10px;" onclick="generateRecurring('${r.id}')">สร้างออเดอร์สัปดาห์นี้</button>
+    </div>`;
+  }).join('')}
+  `;
+}
+function generateRecurring(rid){
+  const r = db.recurringOrders.find(x=>x.id===rid);
+  const cust = db.customers.find(c=>c.id===r.customerId);
+  state.orderForm = {
+    id:null, branchId:cust.branchId, customerId:cust.id, employeeId:state.session.employeeId,
+    deliveryDate: state.selectedDate, jobStatus:'pending', paymentStatus:'unpaid', paymentMethod:null,
+    items: r.items.map(i=>({productId:i.productId, qty:i.defaultQty})),
+  };
+  state.customerSearch = cust.name;
+  goTo('neworder');
+  toast('สร้างร่างออเดอร์จากรายการประจำแล้ว แก้จำนวนได้ก่อนบันทึก');
+}
+
+/* ---------- REPORTS ---------- */
+function renderReports(){
+  const ranges = {'7':7,'30':30,'thismonth':null};
+  let from,to=todayISO();
+  if(state.reportRange==='thismonth'){
+    const d=new Date(); from = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`;
+  } else {
+    from = addDays(todayISO(), -parseInt(state.reportRange));
+  }
+  const orders = db.orders.filter(o=>{
+    if(o.jobStatus==='cancelled') return false;
+    if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
+    return o.deliveryDate>=from && o.deliveryDate<=to;
+  });
+  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0),0);
+  const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
+  const totalCost = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0),0);
+  const profit = totalRevenue - totalCost;
+
+  const byProduct={}; orders.forEach(o=>o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; }));
+  const topProducts = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]);
+  const maxProd = topProducts.length?topProducts[0][1]:1;
+
+  const byEmp={}; orders.forEach(o=>{ if(!byEmp[o.employeeId]) byEmp[o.employeeId]={qty:0,orders:0}; byEmp[o.employeeId].qty += o.items.reduce((s,i)=>s+i.qty,0); byEmp[o.employeeId].orders++; });
+  const empRows = Object.entries(byEmp).sort((a,b)=>b[1].qty-a[1].qty);
+  const maxEmp = empRows.length? Math.max(...empRows.map(e=>e[1].qty)) : 1;
+
+  return `
+  <div class="pill-row">
+    <div class="pill ${state.reportRange==='7'?'active':''}" onclick="state.reportRange='7';render();">7 วันล่าสุด</div>
+    <div class="pill ${state.reportRange==='30'?'active':''}" onclick="state.reportRange='30';render();">30 วันล่าสุด</div>
+    <div class="pill ${state.reportRange==='thismonth'?'active':''}" onclick="state.reportRange='thismonth';render();">เดือนนี้</div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-bottom:14px;">
+    <div class="card" style="flex:1;margin-bottom:0;"><p class="label-sm">จำนวนชิ้นรวม</p><p class="big-number" style="font-size:22px;">${totalQty.toLocaleString()}</p></div>
+    <div class="card" style="flex:1;margin-bottom:0;"><p class="label-sm">ยอดขาย</p><p class="big-number" style="font-size:22px;">${money(totalRevenue)}</p></div>
+  </div>
+  <div class="card">
+    <div class="row"><span>ยอดขายรวม</span><b>${money(totalRevenue)} บาท</b></div>
+    <div class="row"><span>ต้นทุนวัตถุดิบโดยประมาณ</span><b>${money(totalCost)} บาท</b></div>
+    <div class="divider"></div>
+    <div class="row"><span style="font-weight:700;">กำไรขั้นต้น</span><b style="color:var(--success);">${money(profit)} บาท</b></div>
+  </div>
+
+  <h3>ไส้ขายดี</h3>
+  <div class="card">
+    ${topProducts.length===0?'<p class="muted">ไม่มีข้อมูล</p>':topProducts.map(([pid,qty])=>{
+      const p=db.products.find(x=>x.id===pid);
+      return `<div class="bar-row"><div class="row"><span style="font-size:13.5px;">${esc(p?p.name:'')}</span><span style="font-size:13.5px;font-weight:700;">${qty}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.max(6,qty/maxProd*100)}%;"></div></div></div>`;
+    }).join('')}
+  </div>
+
+  <h3>ยอดขายแยกตามพนักงาน</h3>
+  <div class="card">
+    ${empRows.length===0?'<p class="muted">ไม่มีข้อมูล</p>':empRows.map(([eid,d])=>{
+      const e=db.employees.find(x=>x.id===eid);
+      return `<div class="bar-row"><div class="row"><span style="font-size:13.5px;">${esc(e?e.name:'')} (${d.orders} ออเดอร์)</span><span style="font-size:13.5px;font-weight:700;">${d.qty} ชิ้น</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.max(6,d.qty/maxEmp*100)}%;"></div></div></div>`;
+    }).join('')}
+  </div>
+  `;
+}
+
+/* ---------- MORE / SETTINGS ---------- */
+function renderMore(){
+  const links=[
+    {v:'customers',ico:ICO.users,label:'จัดการลูกค้า',sub:'รายชื่อ เบอร์โทร ที่อยู่จัดส่ง'},
+    {v:'employees',ico:ICO.users,label:'จัดการพนักงาน',sub:'ชื่อพนักงาน และรหัส PIN'},
+    {v:'products',ico:ICO.box,label:'จัดการไส้กะหรี่ปั๊ป',sub:'ราคา ต้นทุน สูตร เปิด/ปิดขาย'},
+    {v:'ingredients',ico:ICO.box,label:'จัดการวัตถุดิบ',sub:'ชื่อ หน่วยนับ ต้นทุนต่อหน่วย'},
+    {v:'recurring',ico:ICO.repeat,label:'ออเดอร์ประจำ',sub:'ลูกค้าที่สั่งซ้ำทุกสัปดาห์'},
+    {v:'settings',ico:ICO.gear,label:'ตั้งค่าร้าน',sub:'PromptPay สาขา และอื่นๆ'},
+  ];
+  return `<div class="card" style="padding:6px 16px;">
+    ${links.map(l=>`<div class="more-link" onclick="goTo('${l.v}')"><span class="more-icon">${l.ico}</span><div class="col"><b>${l.label}</b><span class="muted">${l.sub}</span></div></div>`).join('')}
+  </div>`;
+}
+function renderSettings(){
+  return `
+  <div class="card">
+    <div class="field"><label>หมายเลข PromptPay ของร้าน</label>
+      <input value="${esc(db.settings.promptpayId)}" oninput="updatePromptpay(this.value)">
+    </div>
+    <p class="muted">ใช้สร้าง QR รับเงินจากลูกค้า</p>
+  </div>
+  <div class="card">
+    <div class="row">
+      <div class="col"><b>เปิดใช้งานหลายสาขา</b><span class="muted">ตอนนี้: ${db.settings.multiBranch?'เปิดอยู่':'ปิดอยู่ (โหมดสาขาเดียว)'}</span></div>
+      <button class="btn ${db.settings.multiBranch?'btn-success':''}" onclick="toggleMultiBranch()">${db.settings.multiBranch?'ปิด':'เปิด'}</button>
+    </div>
+  </div>
+  <div class="card">
+    <p class="label-sm">สาขา</p>
+    ${db.branches.map(b=>`<div class="list-row"><span>${esc(b.name)}</span><button class="btn btn-sm" onclick="renameBranchPrompt('${b.id}')">แก้ไขชื่อ</button></div>`).join('')}
+    ${db.settings.multiBranch?`<button class="btn btn-block" style="margin-top:10px;" onclick="addBranchPrompt()">+ เพิ่มสาขา</button>`:''}
+  </div>
+  <button class="btn btn-danger btn-block" onclick="clearMockData()">ล้างข้อมูลม้อคอัพทั้งหมด</button>
+  <p class="muted" style="text-align:center;margin-top:20px;">เชื่อมต่อฐานข้อมูล Supabase แล้ว ✅<br>ข้อมูลไม่หายเมื่อรีเฟรช และใช้ร่วมกันได้ทุกเครื่อง</p>
+  `;
+}
+function updatePromptpay(val){
+  db.settings.promptpayId = val;
+  persist(async ()=>{ const { error } = await sb.from('settings').upsert({id:1, promptpay_id:val, multi_branch:db.settings.multiBranch}); if(error) throw error; });
+}
+function toggleMultiBranch(){
+  db.settings.multiBranch = !db.settings.multiBranch;
+  persist(async ()=>{ const { error } = await sb.from('settings').upsert({id:1, promptpay_id:db.settings.promptpayId, multi_branch:db.settings.multiBranch}); if(error) throw error; });
+  render();
+  toast(db.settings.multiBranch?'เปิดใช้งานหลายสาขาแล้ว':'ปิดโหมดหลายสาขาแล้ว');
+}
+function renameBranchPrompt(id){
+  const b = db.branches.find(x=>x.id===id);
+  const name = prompt('ชื่อสาขา:', b.name); if(!name) return;
+  b.name = name.trim();
+  persist(async ()=>{ const { error } = await sb.from('branches').update({name:b.name}).eq('id',id); if(error) throw error; });
+  render(); toast('แก้ไขชื่อสาขาแล้ว');
+}
+function addBranchPrompt(){
+  const name = prompt('ชื่อสาขาใหม่:'); if(!name) return;
+  const b = {id:uid('b'), name:name.trim()};
+  db.branches.push(b);
+  persist(async ()=>{ const { error } = await sb.from('branches').insert(b); if(error) throw error; });
+  render(); toast('เพิ่มสาขาแล้ว');
+}
+async function clearMockData(){
+  if(!confirm('ล้างข้อมูลทั้งหมด (ลูกค้า/ออเดอร์/พนักงาน/ไส้ ฯลฯ) แล้วเริ่มต้นใหม่?')) return;
+  if(sb){
+    try{
+      await sb.from('order_items').delete().neq('id',-1);
+      await sb.from('recurring_order_items').delete().neq('id',-1);
+      await sb.from('recipe_items').delete().neq('id',-1);
+      await sb.from('orders').delete().neq('id','');
+      await sb.from('recurring_orders').delete().neq('id','');
+      await sb.from('customers').delete().neq('id','');
+      await sb.from('products').delete().neq('id','');
+      await sb.from('ingredients').delete().neq('id','');
+      await sb.from('employees').delete().neq('id','');
+      await sb.from('branches').delete().neq('id','');
+      await sb.from('settings').delete().eq('id',1);
+      await bootstrapSeedToSupabase();
+      await loadAllFromSupabase();
+    }catch(err){ toast('ล้างข้อมูลไม่สำเร็จ: '+(err.message||err)); return; }
+  } else {
+    db = seed();
+  }
+  state.session=null; state.loginBranch=null; state.loginEmployee=null; state.pinInput=''; state.view='login';
+  toast('ล้างข้อมูลเรียบร้อยแล้ว');
+  render();
+}
+
+/* ---------- after render: attach QR + focus fixes ---------- */
+function afterRender(){
+  document.querySelectorAll('input,textarea').forEach(el=>{
+    el.addEventListener('keydown', e=>e.stopPropagation());
+  });
+  if(state.qrOrderId){
+    const holder = document.getElementById('qrcode-holder');
+    if(holder){
+      holder.innerHTML='';
+      const payload = promptPayPayload(db.settings.promptpayId, state._qrTotal||0);
+      try{ new QRCode(holder, {text:payload, width:200, height:200, correctLevel:QRCode.CorrectLevel.M}); }
+      catch(e){ holder.innerHTML = `<p class="muted" style="word-break:break-all;font-size:11px;">${esc(payload)}</p>`; }
+    }
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
