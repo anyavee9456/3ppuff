@@ -1766,7 +1766,7 @@ function renderExpenseDetail(){
         <button class="btn btn-sm btn-danger" onclick="removeReceipt()">${ICO.trash} ลบรูป</button>
       `:`
         <label class="upload-box">
-          <input type="file" accept="image/*" capture="environment" onchange="uploadReceipt(this)">
+          <input type="file" accept="image/*" onchange="uploadReceipt(this)">
           <span style="color:var(--accent);">${ICO.camera}</span>
           <span class="upload-title">แตะเพื่อถ่ายรูปหรือเลือกไฟล์</span>
           <span class="upload-sub">รองรับรูปใบเสร็จ JPG, PNG</span>
