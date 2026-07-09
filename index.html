@@ -77,7 +77,7 @@
   }
   .content{
     flex:1;
-    padding:16px 16px 90px;
+    padding:16px 16px calc(100px + env(safe-area-inset-bottom));
     overflow-y:auto;
   }
   .content.no-nav{padding-bottom:24px;}
@@ -155,14 +155,14 @@
     padding:8px 14px calc(8px + env(safe-area-inset-bottom));
     width:100%;
     flex-shrink:0;
+    z-index:100;
   }
   .nav-item{
     flex:0 1 64px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
     padding:6px 4px;border-radius:10px;background:none;border:none;
     color:var(--ink-soft);font-size:10px;font-weight:700;cursor:pointer;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  .nav-item span{white-space:nowrap;}
+  .nav-item span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   .nav-item.active{color:var(--accent-dark);}
   .nav-item .fab{
     width:42px;height:42px;border-radius:50%;
@@ -171,6 +171,17 @@
     margin-top:-20px;margin-bottom:1px;box-shadow:0 3px 8px rgba(150,105,30,0.4);
     flex-shrink:0;
   }
+  .upload-box{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    border:2px dashed var(--border);border-radius:var(--radius);
+    padding:28px 16px;cursor:pointer;
+    color:var(--accent-dark);background:var(--surface-alt);
+    text-align:center;
+  }
+  .upload-box:active{background:var(--accent-bg);border-color:var(--accent);}
+  .upload-box input[type="file"]{display:none;}
+  .upload-box .upload-title{font-weight:700;font-size:14px;color:var(--ink);}
+  .upload-box .upload-sub{font-size:12px;color:var(--ink-soft);}
   .empty{
     text-align:center;padding:40px 16px;color:var(--ink-soft);
   }
@@ -276,6 +287,7 @@ const THAI_MONTHS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.',
 function thaiDate(iso){ const d=new Date(iso+'T00:00:00'); return `${THAI_DAYS[d.getDay()]} ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear()+543}`; }
 function money(n){ return Number(n||0).toLocaleString('th-TH',{maximumFractionDigits:2}); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function colorDot(color){ return `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color||'var(--accent)'};margin-right:5px;vertical-align:middle;"></span>`; }
 
 /* ---------- PromptPay QR payload (EMVCo standard) ---------- */
 function crc16(str){
@@ -348,15 +360,19 @@ async function ensureSupabaseLib(){
   throw lastErr || new Error('ไม่พบไลบรารี Supabase จากแหล่งใดเลย');
 }
 
+const COLOR_PALETTE = ['#C0392B','#27974D','#8E44AD','#2471A3','#D68910','#148F77','#B03A8B','#6C5CE7','#CA6F1E','#17A398'];
+function nextPaletteColor(idx){ return COLOR_PALETTE[((idx%COLOR_PALETTE.length)+COLOR_PALETTE.length)%COLOR_PALETTE.length]; }
+
 let db = seed();
 let booting = true;
 let bootError = null;
 
-function rowToEmployee(r){ return {id:r.id, branchId:r.branch_id, name:r.name, pin:r.pin}; }
+function rowToEmployee(r){ return {id:r.id, branchId:r.branch_id, name:r.name, pin:r.pin, color:r.color||null}; }
 function rowToProduct(r, recipeRows){
   return {
     id:r.id, name:r.name, price:Number(r.price), cost:Number(r.cost), active:r.active,
     sortOrder: r.sort_order==null ? 0 : Number(r.sort_order),
+    color: r.color||null,
     recipe: (recipeRows||[]).filter(x=>x.product_id===r.id).map(x=>({ingredientId:x.ingredient_id, amount:Number(x.amount)})),
   };
 }
@@ -364,12 +380,13 @@ function rowToIngredient(r){ return {id:r.id, name:r.name, unit:r.unit, costPerU
 function sortedAllProducts(){ return [...db.products].sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
 function sortedActiveProducts(){ return sortedAllProducts().filter(p=>p.active!==false); }
 function rowToCustomer(r){ return {id:r.id, name:r.name, phone:r.phone, address:r.address, type:r.type, branchId:r.branch_id}; }
-function rowToOrder(r, itemRows){
+function rowToOrder(r, itemRows, freebieRows){
   return {
     id:r.id, branchId:r.branch_id, customerId:r.customer_id, employeeId:r.employee_id,
     deliveryDate:r.delivery_date, jobStatus:r.job_status, paymentStatus:r.payment_status,
     paymentMethod:r.payment_method, createdAt:Number(r.created_at),
     items: itemRows.filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, qty:Number(i.qty), price:Number(i.price)})),
+    freebies: (freebieRows||[]).filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, qty:Number(i.qty)})),
   };
 }
 function rowToRecurring(r, itemRows){
@@ -379,11 +396,11 @@ function rowToRecurring(r, itemRows){
   };
 }
 function rowToExpense(r){
-  return { id:r.id, branchId:r.branch_id, date:r.date, description:r.description, amount:Number(r.amount), createdAt:Number(r.created_at) };
+  return { id:r.id, branchId:r.branch_id, employeeId:r.employee_id, date:r.date, description:r.description, amount:Number(r.amount), receiptUrl:r.receipt_url||null, createdAt:Number(r.created_at) };
 }
 
 async function loadAllFromSupabase(){
-  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR] = await Promise.all([
+  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR] = await Promise.all([
     sb.from('branches').select('*'),
     sb.from('employees').select('*'),
     sb.from('products').select('*'),
@@ -396,18 +413,21 @@ async function loadAllFromSupabase(){
     sb.from('ingredients').select('*'),
     sb.from('recipe_items').select('*'),
     sb.from('expenses').select('*'),
+    sb.from('order_freebies').select('*'),
   ]);
-  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR].find(r=>r.error);
+  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR].find(r=>r.error);
   if(firstErr) throw firstErr.error;
   db.branches = brR.data;
   db.employees = empR.data.map(rowToEmployee);
   db.ingredients = ingR.data.map(rowToIngredient);
   db.products = prodR.data.map(r=>rowToProduct(r, recR.data));
   db.customers = custR.data.map(rowToCustomer);
-  db.orders = ordR.data.map(r=>rowToOrder(r, itemR.data));
+  db.orders = ordR.data.map(r=>rowToOrder(r, itemR.data, freeR.data));
   db.recurringOrders = rordR.data.map(r=>rowToRecurring(r, ritemR.data));
   db.expenses = expR.data.map(rowToExpense);
   db.settings = { promptpayId: setR.data ? setR.data.promptpay_id : '', multiBranch: setR.data ? !!setR.data.multi_branch : false };
+  db.products.forEach((p,i)=>{ if(!p.color) p.color = nextPaletteColor(i); });
+  db.employees.forEach((e,i)=>{ if(!e.color) e.color = nextPaletteColor(i+4); });
 }
 
 async function bootstrapSeedToSupabase(){
@@ -484,7 +504,7 @@ let state = {
   customerSearch:'',
   showNewCustomer:false,
   newCustomerDraft:null,
-  historyFilter:{from:addDays(todayISO(),-14),to:addDays(todayISO(),7),q:''},
+  historyFilter:{from:addDays(todayISO(),-14),to:addDays(todayISO(),7),q:'',employeeId:null},
   reportRange:'7',
   reportCustomFrom: addDays(todayISO(),-7),
   reportCustomTo: addDays(todayISO(),7),
@@ -494,6 +514,7 @@ let state = {
   expenseCustomTo: todayISO(),
   toastMsg:null,
   qrOrderId:null,
+  bulkSheetIds:null,
 };
 
 function toast(msg){ state.toastMsg=msg; render(); setTimeout(()=>{ state.toastMsg=null; render(); },2000); }
@@ -513,6 +534,7 @@ const ICO = {
   gear:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
   qr:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></svg>',
   print:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+  camera:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>',
   trash:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>',
 };
 
@@ -537,7 +559,7 @@ function render(){
   }
   if(!state.session){ app.innerHTML = renderLogin(); return; }
   const showNav = !['neworder'].includes(state.view);
-  app.innerHTML = renderTopbar() + `<div class="content ${showNav?'':'no-nav'}">` + renderView() + '</div>' + (showNav?renderNav():'') + (state.toastMsg?`<div class="toast">${esc(state.toastMsg)}</div>`:'');
+  app.innerHTML = renderTopbar() + `<div class="content ${showNav?'':'no-nav'}">` + renderView() + '</div>' + (showNav?renderNav():'') + (state.toastMsg?`<div class="toast">${esc(state.toastMsg)}</div>`:'') + (state.bulkSheetIds?renderBulkStatusSheet():'');
   afterRender();
   if(focusInfo){
     const el = app.querySelector(`[data-fid="${focusInfo.fid}"]`);
@@ -569,7 +591,7 @@ function renderTopbar(){
 
 function renderNav(){
   const items=[
-    {v:'home',ico:ICO.home,label:'วันนี้'},
+    {v:'home',ico:ICO.home,label:'หน้าแรก'},
     {v:'history',ico:ICO.list,label:'ประวัติ'},
     {v:'__new',ico:ICO.plus,label:''},
     {v:'reports',ico:ICO.chart,label:'รายงาน'},
@@ -720,11 +742,14 @@ function visibleOrders(dateFilterFn){
 function renderHome(){
   let orders = visibleOrders(o=>o.deliveryDate===state.selectedDate).sort((a,b)=>a.createdAt-b.createdAt);
   orders = applyOrderSort(orders);
-  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0),0);
+  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0)+(o.freebies||[]).reduce((x,i)=>x+i.qty,0),0);
   const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
   const byProduct = {};
-  orders.forEach(o=>o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; }));
-  const sortedProd = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]);
+  orders.forEach(o=>{
+    o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
+    (o.freebies||[]).forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
+  });
+  const sortedProd = sortedActiveProducts().filter(p=>byProduct[p.id]).map(p=>[p.id, byProduct[p.id]]);
 
   return `
   <div class="pill-row">
@@ -752,7 +777,7 @@ function renderHome(){
     <p style="margin:2px 0 0;"><span class="big-number" style="font-size:26px;">${totalQty.toLocaleString()} ชิ้น</span><span style="font-size:18px;color:var(--ink-soft);font-weight:700;"> = ${money(totalRevenue)} บาท</span></p>
     ${sortedProd.length? `<div class="divider"></div><p style="font-size:14px;line-height:1.9;">` + sortedProd.map(([pid,qty])=>{
       const p = db.products.find(x=>x.id===pid);
-      return `<b>${esc(p?p.name:'?')}</b> ${qty.toLocaleString()} ชิ้น`;
+      return `${colorDot(p?p.color:null)}<b>${esc(p?p.name:'?')}</b> ${qty.toLocaleString()} ชิ้น`;
     }).join(' <span class="muted">|</span> ') + `</p>` : `<p class="muted" style="margin-top:8px;">ยังไม่มีออเดอร์วันนี้</p>`}
   </div>
 
@@ -768,12 +793,15 @@ function renderHome(){
           byEmp[o.employeeId].qtyByProduct[i.productId] = (byEmp[o.employeeId].qtyByProduct[i.productId]||0) + i.qty;
           byEmp[o.employeeId].revenue += i.qty*i.price;
         });
+        (o.freebies||[]).forEach(i=>{
+          byEmp[o.employeeId].qtyByProduct[i.productId] = (byEmp[o.employeeId].qtyByProduct[i.productId]||0) + i.qty;
+        });
       });
       const rows = Object.entries(byEmp).sort((a,b)=>b[1].revenue-a[1].revenue);
       return rows.map(([eid,d],idx)=>{
         const emp = db.employees.find(e=>e.id===eid);
-        const parts = activeProducts.map(p=>`${esc(p.name)} ${(d.qtyByProduct[p.id]||0).toLocaleString()} ชิ้น`).join(' <span class="muted">|</span> ');
-        return `<div style="padding:8px 0;${idx<rows.length-1?'border-bottom:1px solid var(--border);':''}">
+        const parts = activeProducts.map(p=>`${colorDot(p.color)}${esc(p.name)} ${(d.qtyByProduct[p.id]||0).toLocaleString()} ชิ้น`).join(' <span class="muted">|</span> ');
+        return `<div style="padding:8px 0;cursor:pointer;${idx<rows.length-1?'border-bottom:1px solid var(--border);':''}" onclick="viewEmployeeOrders('${eid}')">
           <div class="row"><b>${esc(emp?emp.name:'-')}</b><b style="color:var(--accent-dark);">${money(d.revenue)} บาท</b></div>
           <p class="muted" style="font-size:13px;margin-top:3px;">${parts}</p>
         </div>`;
@@ -833,35 +861,45 @@ function togglePayment(id){
   persist(async ()=>{ const { error } = await sb.from('orders').update({payment_status:val, payment_method:o.paymentMethod}).eq('id',id); if(error) throw error; });
   render();
 }
-function renderOrdersBlock(orders){
-  if(orders.length===0) return '';
-  const idsJson = JSON.stringify(orders.map(o=>o.id));
-  return `
-  <div class="card" style="padding:12px 14px;margin-bottom:10px;">
-    <p class="label-sm" style="margin-bottom:8px;">เปลี่ยนสถานะงานทั้งหมดที่แสดงอยู่</p>
-    <div class="row" style="gap:8px;">
-      <select id="bulkStatusSelect" style="flex:1;">
-        <option value="pending">รอทำ</option>
-        <option value="in_progress">กำลังทำ</option>
-        <option value="delivered">ส่งแล้ว</option>
-      </select>
-      <button class="btn btn-sm btn-primary" onclick='bulkSetStatus(${idsJson}, document.getElementById("bulkStatusSelect").value)'>ใช้กับทั้งหมด (${orders.length})</button>
+let _longPressTimer = null;
+function startLongPress(idsJson){
+  cancelLongPress();
+  _longPressTimer = setTimeout(()=>{ state.bulkSheetIds = JSON.parse(idsJson); render(); }, 550);
+}
+function cancelLongPress(){ if(_longPressTimer){ clearTimeout(_longPressTimer); _longPressTimer=null; } }
+function closeBulkSheet(){ state.bulkSheetIds=null; render(); }
+function renderBulkStatusSheet(){
+  const n = state.bulkSheetIds.length;
+  return `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200;max-width:480px;margin:0 auto;" onclick="if(event.target===this)closeBulkSheet()">
+    <div class="card" style="width:280px;">
+      <p class="label-sm" style="margin-bottom:4px;">เปลี่ยนสถานะงานทั้งหมด</p>
+      <p class="muted" style="margin-bottom:14px;">จะใช้กับ ${n} ออเดอร์ที่แสดงอยู่</p>
+      <button class="btn btn-block" style="margin-bottom:8px;" onclick="bulkSetStatus(state.bulkSheetIds,'pending');closeBulkSheet();">รอทำ</button>
+      <button class="btn btn-block" style="margin-bottom:8px;" onclick="bulkSetStatus(state.bulkSheetIds,'in_progress');closeBulkSheet();">กำลังทำ</button>
+      <button class="btn btn-block" style="margin-bottom:8px;" onclick="bulkSetStatus(state.bulkSheetIds,'delivered');closeBulkSheet();">ส่งแล้ว</button>
+      <button class="btn btn-ghost btn-block" onclick="closeBulkSheet()">ยกเลิก</button>
     </div>
-  </div>
-  ` + renderOrdersTable(orders);
+  </div>`;
+}
+function renderOrdersBlock(orders){
+  return renderOrdersTable(orders);
 }
 function renderOrdersTable(orders){
   if(orders.length===0) return '';
   const activeProducts = sortedActiveProducts();
+  const idsJson = esc(JSON.stringify(orders.map(o=>o.id)));
   return `<div class="order-table-wrap"><table class="order-table">
     <thead><tr>
       <th onclick="toggleSort('customer')" style="cursor:pointer;">ลูกค้า${sortArrow('customer')}</th>
       <th onclick="toggleSort('employee')" style="cursor:pointer;">พนักงาน${sortArrow('employee')}</th>
-      ${activeProducts.map(p=>`<th>${esc(p.name)}</th>`).join('')}
-      <th>ยอดรวม (บาท)</th>
-      <th>ที่อยู่</th>
+      ${activeProducts.map(p=>`<th><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color||'var(--accent)'};margin-right:5px;"></span>${esc(p.name)}</th>`).join('')}
+      <th>ยอด</th>
       <th>สถานะจ่าย</th>
-      <th>สถานะงาน</th>
+      <th>ที่อยู่</th>
+      <th title="กดค้างเพื่อเปลี่ยนทั้งหมด" style="cursor:pointer;user-select:none;"
+          onpointerdown="startLongPress('${idsJson}')" onpointerup="cancelLongPress()" onpointerleave="cancelLongPress()" onpointercancel="cancelLongPress()">
+        สถานะงาน 🔒
+      </th>
     </tr></thead>
     <tbody>
       ${orders.map(o=>{
@@ -870,17 +908,21 @@ function renderOrdersTable(orders){
         const total = o.items.reduce((s,i)=>s+i.qty*i.price,0);
         return `<tr style="cursor:pointer;" onclick="openEditOrder('${o.id}')">
           <td><b>${esc(cust?cust.name:'ลูกค้า')}</b></td>
-          <td>${esc(emp?emp.name:'-')}</td>
+          <td><b style="font-size:13.5px;color:${emp&&emp.color?emp.color:'var(--ink)'};">${esc(emp?emp.name:'-')}</b></td>
           ${activeProducts.map(p=>{
             const item = o.items.find(i=>i.productId===p.id);
             const qty = item?item.qty:0;
-            return `<td class="qty-cell ${qty?'':'zero'}">${qty||'–'}</td>`;
+            const freeItem = (o.freebies||[]).find(i=>i.productId===p.id);
+            const freeQty = freeItem?freeItem.qty:0;
+            const display = qty + freeQty;
+            const color = p.color || '#96691E';
+            return `<td class="qty-cell">${display?`<span style="background:${color}22;color:${color};padding:3px 10px;border-radius:8px;font-weight:800;display:inline-block;min-width:24px;">${display}</span>`:'<span class="muted">–</span>'}${freeQty?`<span class="muted" style="font-size:10px;display:block;margin-top:2px;">🎁${freeQty}</span>`:''}</td>`;
           }).join('')}
           <td style="font-weight:700;color:var(--accent-dark);">${money(total)}</td>
-          <td class="addr-cell">${esc(cust?cust.address:'-')||'-'}</td>
           <td onclick="event.stopPropagation();">
             <span class="badge ${o.paymentStatus==='paid'?'badge-paid':'badge-unpaid'}" style="cursor:pointer;" onclick="togglePayment('${o.id}')">${o.paymentStatus==='paid'?'จ่ายแล้ว':'ค้างจ่าย'}</span>
           </td>
+          <td class="addr-cell">${esc(cust?cust.address:'-')||'-'}</td>
           <td onclick="event.stopPropagation();">
             <select onchange="quickStatus('${o.id}',this.value)" style="width:auto;padding:6px 8px;font-size:12px;">
               <option value="pending" ${o.jobStatus==='pending'?'selected':''}>รอทำ</option>
@@ -919,6 +961,7 @@ function openNewOrder(){
     id:null, branchId:state.session.branchId, customerId:null, employeeId:state.session.employeeId,
     deliveryDate: state.selectedDate, jobStatus:'pending', paymentStatus:'unpaid', paymentMethod:null,
     items: activeProducts.map(p=>({productId:p.id, qty:0, price:p.price})),
+    freebies: [],
   };
   state.customerSearch=''; state.showNewCustomer=false; state.newCustomerDraft=null;
   goTo('neworder');
@@ -931,6 +974,7 @@ function openEditOrder(id){
     const existing = f.items.find(i=>i.productId===p.id);
     return existing ? {productId:p.id, qty:existing.qty, price:existing.price} : {productId:p.id, qty:0, price:p.price};
   });
+  if(!f.freebies) f.freebies = [];
   state.orderForm = f;
   const cust = db.customers.find(c=>c.id===o.customerId);
   state.customerSearch = cust?cust.name:'';
@@ -1012,6 +1056,25 @@ function renderOrderForm(){
     `}
   </div>
 
+  <h3>แถม (ไม่คิดเงิน)</h3>
+  <div class="card">
+    ${(f.freebies||[]).length===0?`<p class="muted" style="margin-bottom:10px;">ยังไม่มีของแถมในออเดอร์นี้</p>`:''}
+    ${(f.freebies||[]).map((fr,idx)=>`
+      <div class="order-item-row">
+        <select onchange="setFreebieProduct(${idx},this.value)">
+          ${db.products.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${fr.productId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <div class="qty-box">
+          <button onclick="stepFreebieQty(${idx},-1)">−</button>
+          <input type="number" inputmode="numeric" data-fid="freebie-qty-${idx}" value="${fr.qty}" oninput="setFreebieQty(${idx},this.value)">
+          <button onclick="stepFreebieQty(${idx},1)">+</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="removeFreebie(${idx})">${ICO.trash}</button>
+      </div>
+    `).join('')}
+    <button class="btn btn-sm" onclick="addFreebie()">🎁 + เพิ่มของแถม</button>
+  </div>
+
   <h3>รายละเอียดออเดอร์</h3>
   <div class="card">
     <div class="field"><label>วันที่ส่ง</label><input type="date" value="${f.deliveryDate}" oninput="state.orderForm.deliveryDate=this.value"></div>
@@ -1090,6 +1153,17 @@ function stepQty(pid,delta){
   it.qty = Math.max(0, it.qty+delta);
   render();
 }
+function addFreebie(){
+  const active = db.products.filter(p=>p.active!==false);
+  if(active.length===0){ toast('ยังไม่มีไส้ในระบบ'); return; }
+  if(!state.orderForm.freebies) state.orderForm.freebies=[];
+  state.orderForm.freebies.push({productId:active[0].id, qty:1});
+  render();
+}
+function removeFreebie(idx){ state.orderForm.freebies.splice(idx,1); render(); }
+function setFreebieProduct(idx,val){ state.orderForm.freebies[idx].productId=val; render(); }
+function setFreebieQty(idx,val){ state.orderForm.freebies[idx].qty = Math.max(0, parseInt(val)||0); render(); }
+function stepFreebieQty(idx,delta){ const fr=state.orderForm.freebies[idx]; fr.qty=Math.max(0,fr.qty+delta); render(); }
 function cancelOrderForm(){ state.orderForm=null; goTo('home'); }
 function saveOrder(){
   const f = state.orderForm;
@@ -1097,6 +1171,7 @@ function saveOrder(){
   const chosen = f.items.filter(i=>i.qty>0).map(i=>({productId:i.productId, qty:i.qty, price:Number(i.price)||0}));
   if(chosen.length===0){ toast('กรุณาใส่จำนวนอย่างน้อย 1 ไส้'); return; }
   f.items = chosen;
+  f.freebies = (f.freebies||[]).filter(fr=>fr.qty>0).map(fr=>({productId:fr.productId, qty:fr.qty}));
   if(f.id){
     const idx = db.orders.findIndex(o=>o.id===f.id);
     db.orders[idx] = f;
@@ -1117,6 +1192,11 @@ function saveOrder(){
     await sb.from('order_items').delete().eq('order_id', f.id);
     const { error:e2 } = await sb.from('order_items').insert(f.items.map(i=>({order_id:f.id, product_id:i.productId, qty:i.qty, price:i.price})));
     if(e2) throw e2;
+    await sb.from('order_freebies').delete().eq('order_id', f.id);
+    if(f.freebies.length){
+      const { error:e3 } = await sb.from('order_freebies').insert(f.freebies.map(fr=>({order_id:f.id, product_id:fr.productId, qty:fr.qty})));
+      if(e3) throw e3;
+    }
   });
   state.orderForm=null;
   goTo('home');
@@ -1154,6 +1234,7 @@ function printOrder(id){
   const o = db.orders.find(x=>x.id===id);
   const cust = db.customers.find(c=>c.id===o.customerId);
   const rows = o.items.map(i=>{ const p=db.products.find(x=>x.id===i.productId); return `<tr><td>${esc(p?p.name:'')}</td><td style="text-align:right;">${i.qty}</td><td style="text-align:right;">${money(i.qty*i.price)}</td></tr>`; }).join('');
+  const freebieRows = (o.freebies||[]).filter(i=>i.qty>0).map(i=>{ const p=db.products.find(x=>x.id===i.productId); return `<tr><td>${esc(p?p.name:'')} 🎁แถม</td><td style="text-align:right;">${i.qty}</td><td style="text-align:right;">0</td></tr>`; }).join('');
   const total = o.items.reduce((s,i)=>s+i.qty*i.price,0);
   document.getElementById('printArea').innerHTML = `
     <div style="font-family:Tahoma,sans-serif;max-width:380px;">
@@ -1166,6 +1247,7 @@ function printOrder(id){
       <table style="width:100%;border-collapse:collapse;">
         <tr style="border-bottom:1px solid #000;"><th style="text-align:left;">ไส้</th><th style="text-align:right;">จำนวน</th><th style="text-align:right;">ราคา</th></tr>
         ${rows}
+        ${freebieRows}
       </table>
       <p style="text-align:right;font-weight:bold;margin-top:8px;">รวม ${money(total)} บาท</p>
       <p style="margin-top:14px;">สถานะจ่ายเงิน: ${o.paymentStatus==='paid'?'จ่ายแล้ว':'ค้างจ่าย'}</p>
@@ -1180,6 +1262,7 @@ function renderHistory(){
   let orders = db.orders.filter(o=>{
     if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
     if(o.deliveryDate<hf.from || o.deliveryDate>hf.to) return false;
+    if(hf.employeeId && o.employeeId!==hf.employeeId) return false;
     if(hf.q){
       const cust = db.customers.find(c=>c.id===o.customerId);
       const q = hf.q.toLowerCase();
@@ -1189,7 +1272,15 @@ function renderHistory(){
   }).sort((a,b)=>b.deliveryDate.localeCompare(a.deliveryDate) || b.createdAt-a.createdAt);
   orders = applyOrderSort(orders);
 
+  const filterEmp = hf.employeeId ? db.employees.find(e=>e.id===hf.employeeId) : null;
+
   return `
+  ${filterEmp?`
+  <div class="row" style="margin-bottom:10px;background:var(--accent-bg);padding:10px 14px;border-radius:10px;">
+    <span style="font-size:13.5px;">กรองเฉพาะ: <b style="color:${filterEmp.color||'var(--accent-dark)'};">${esc(filterEmp.name)}</b></span>
+    <button class="btn btn-sm" onclick="hf.employeeId=null;render();">✕ ล้างตัวกรอง</button>
+  </div>
+  `:''}
   <div class="card">
     <div class="field" style="margin-bottom:10px;"><label>ค้นหาลูกค้า</label><input data-fid="hist-q" value="${esc(hf.q)}" oninput="hf.q=this.value; render();" placeholder="ชื่อหรือเบอร์โทร"></div>
     <div style="display:flex;gap:8px;">
@@ -1200,6 +1291,13 @@ function renderHistory(){
   <p class="muted" style="margin-bottom:8px;">พบ ${orders.length} ออเดอร์</p>
   ${orders.length===0?`<div class="empty">ไม่พบออเดอร์ในช่วงที่เลือก</div>`:renderOrdersBlock(orders)}
   `;
+}
+function viewEmployeeOrders(eid){
+  state.historyFilter.employeeId = eid;
+  state.historyFilter.from = state.selectedDate;
+  state.historyFilter.to = state.selectedDate;
+  state.historyFilter.q = '';
+  goTo('history');
 }
 const hf = state.historyFilter;
 
@@ -1351,7 +1449,7 @@ function renderProducts(){
   ${list.length===0?`<div class="empty">ยังไม่มีไส้ในระบบ</div>`:list.map((p,idx)=>`
     <div class="card">
       <div class="row" style="cursor:pointer;" onclick="openProductDetail('${p.id}')">
-        <div class="col"><b>${esc(p.name)}</b><span class="muted">ราคาขาย ${money(p.price)}฿ · ต้นทุน ${money(p.cost)}฿${p.recipe&&p.recipe.length?` · ${p.recipe.length} วัตถุดิบ`:''}</span></div>
+        <div class="col"><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color||'var(--accent)'};margin-right:6px;"></span>${esc(p.name)}</b><span class="muted">ราคาขาย ${money(p.price)}฿ · ต้นทุน ${money(p.cost)}฿${p.recipe&&p.recipe.length?` · ${p.recipe.length} วัตถุดิบ`:''}</span></div>
         <span class="badge ${p.active===false?'badge-cancel':'badge-done'}">${p.active===false?'ปิดขายอยู่':'เปิดขายอยู่'}</span>
       </div>
       <div class="row" style="margin-top:8px;" onclick="event.stopPropagation();">
@@ -1385,8 +1483,9 @@ function openProductDetail(id){
     const p = db.products.find(x=>x.id===id);
     state.productForm = JSON.parse(JSON.stringify(p));
     if(!state.productForm.recipe) state.productForm.recipe=[];
+    if(!state.productForm.color) state.productForm.color = nextPaletteColor(db.products.length);
   } else {
-    state.productForm = {id:null, name:'', price:15, cost:0, active:true, recipe:[], sortOrder: db.products.length};
+    state.productForm = {id:null, name:'', price:15, cost:0, active:true, recipe:[], sortOrder: db.products.length, color: nextPaletteColor(db.products.length)};
   }
   goTo('productDetail');
 }
@@ -1403,6 +1502,12 @@ function renderProductDetail(){
     <div class="field"><label>ชื่อไส้</label><input data-fid="pd-name" value="${esc(p.name)}" oninput="state.productForm.name=this.value" placeholder="เช่น ไส้ไก่"></div>
     <div class="field"><label>ราคาขายต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-price" value="${p.price}" oninput="state.productForm.price=parseFloat(this.value)||0"></div>
     <div class="field"><label>ต้นทุนต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-cost" value="${p.cost}" oninput="state.productForm.cost=parseFloat(this.value)||0"></div>
+    <div class="field">
+      <label>สีประจำไส้</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${COLOR_PALETTE.map(c=>`<button onclick="state.productForm.color='${c}';render();" style="width:34px;height:34px;border-radius:50%;background:${c};border:3px solid ${p.color===c?'var(--ink)':'transparent'};cursor:pointer;"></button>`).join('')}
+      </div>
+    </div>
     <div class="row">
       <span class="muted">สถานะขาย</span>
       <button class="btn btn-sm ${p.active===false?'':'btn-success'}" onclick="state.productForm.active=(state.productForm.active===false); render();">${p.active===false?'ปิดขายอยู่ (กดเพื่อเปิด)':'เปิดขายอยู่ (กดเพื่อปิด)'}</button>
@@ -1456,7 +1561,7 @@ function saveProductDetail(){
     const idx = db.products.findIndex(x=>x.id===p.id);
     db.products[idx] = p;
     persist(async ()=>{
-      const { error:e1 } = await sb.from('products').update({name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0}).eq('id',p.id);
+      const { error:e1 } = await sb.from('products').update({name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color}).eq('id',p.id);
       if(e1) throw e1;
       await sb.from('recipe_items').delete().eq('product_id',p.id);
       if(p.recipe && p.recipe.length){
@@ -1469,7 +1574,7 @@ function saveProductDetail(){
     p.id = uid('p');
     db.products.push(p);
     persist(async ()=>{
-      const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0});
+      const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color});
       if(e1) throw e1;
       if(p.recipe && p.recipe.length){
         const { error:e2 } = await sb.from('recipe_items').insert(p.recipe.map(r=>({product_id:p.id, ingredient_id:r.ingredientId, amount:r.amount})));
@@ -1498,7 +1603,7 @@ function renderEmployees(){
   ${list.length===0?`<div class="empty">ยังไม่มีพนักงาน</div>`:list.map(e=>`
     <div class="card" style="cursor:pointer;" onclick="openEmployeeDetail('${e.id}')">
       <div class="row">
-        <div class="col"><b>${esc(e.name)}</b><span class="muted">PIN: ${esc(e.pin)}</span></div>
+        <div class="col"><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${e.color||'var(--accent)'};margin-right:6px;"></span>${esc(e.name)}</b><span class="muted">PIN: ${esc(e.pin)}</span></div>
         ${e.id===state.session.employeeId?`<span class="badge badge-progress">กำลังใช้งาน</span>`:''}
       </div>
     </div>
@@ -1509,8 +1614,9 @@ function openEmployeeDetail(id){
   if(id){
     const e = db.employees.find(x=>x.id===id);
     state.employeeForm = JSON.parse(JSON.stringify(e));
+    if(!state.employeeForm.color) state.employeeForm.color = nextPaletteColor(db.employees.length+4);
   } else {
-    state.employeeForm = {id:null, name:'', pin:'', branchId:state.session.branchId};
+    state.employeeForm = {id:null, name:'', pin:'', branchId:state.session.branchId, color: nextPaletteColor(db.employees.length+4)};
   }
   goTo('employeeDetail');
 }
@@ -1523,6 +1629,12 @@ function renderEmployeeDetail(){
   <div class="card">
     <div class="field"><label>ชื่อพนักงาน</label><input data-fid="ed-name" value="${esc(e.name)}" oninput="state.employeeForm.name=this.value"></div>
     <div class="field"><label>รหัส PIN (4 หลัก)</label><input data-fid="ed-pin" value="${esc(e.pin)}" maxlength="4" oninput="state.employeeForm.pin=this.value"></div>
+    <div class="field">
+      <label>สีประจำตัว</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${COLOR_PALETTE.map(c=>`<button onclick="state.employeeForm.color='${c}';render();" style="width:34px;height:34px;border-radius:50%;background:${c};border:3px solid ${e.color===c?'var(--ink)':'transparent'};cursor:pointer;"></button>`).join('')}
+      </div>
+    </div>
   </div>
   <button class="btn btn-primary btn-block" onclick="saveEmployeeDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มพนักงาน'}</button>
   ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteEmployeeDetail()" ${isSelf?'disabled title="ลบพนักงานที่กำลังใช้งานอยู่ไม่ได้"':''}>${ICO.trash} ลบพนักงานนี้${isSelf?' (กำลังใช้งานอยู่)':''}</button>`:''}
@@ -1535,12 +1647,12 @@ function saveEmployeeDetail(){
   if(e.id){
     const idx = db.employees.findIndex(x=>x.id===e.id);
     db.employees[idx] = e;
-    persist(async ()=>{ const { error } = await sb.from('employees').update({name:e.name, pin:e.pin}).eq('id',e.id); if(error) throw error; });
+    persist(async ()=>{ const { error } = await sb.from('employees').update({name:e.name, pin:e.pin, color:e.color}).eq('id',e.id); if(error) throw error; });
     toast('บันทึกการแก้ไขแล้ว');
   } else {
     e.id = uid('e');
     db.employees.push(e);
-    persist(async ()=>{ const { error } = await sb.from('employees').insert({id:e.id, branch_id:e.branchId, name:e.name, pin:e.pin}); if(error) throw error; });
+    persist(async ()=>{ const { error } = await sb.from('employees').insert({id:e.id, branch_id:e.branchId, name:e.name, pin:e.pin, color:e.color}); if(error) throw error; });
     toast('เพิ่มพนักงานแล้ว');
   }
   goTo('employees');
@@ -1610,53 +1722,100 @@ function renderExpenses(){
   <button class="btn btn-primary btn-block" onclick="openExpenseDetail(null)">+ บันทึกรายจ่าย</button>
   <div style="height:12px;"></div>
   <h3>รายการรายจ่าย (${expenses.length})</h3>
-  ${expenses.length===0?`<div class="empty">ยังไม่มีรายการรายจ่ายในช่วงนี้</div>`:expenses.map(e=>`
+  ${expenses.length===0?`<div class="empty">ยังไม่มีรายการรายจ่ายในช่วงนี้</div>`:expenses.map(e=>{
+    const emp = db.employees.find(x=>x.id===e.employeeId);
+    return `
     <div class="card" style="cursor:pointer;" onclick="openExpenseDetail('${e.id}')">
       <div class="row">
-        <div class="col"><b>${esc(e.description||'(ไม่มีรายละเอียด)')}</b><span class="muted">${thaiDate(e.date)}</span></div>
+        <div class="col"><b>${e.receiptUrl?'📷 ':''}${esc(e.description||'(ไม่มีรายละเอียด)')}</b><span class="muted">${thaiDate(e.date)} · ผู้รับผิดชอบ: ${esc(emp?emp.name:'-')}</span></div>
         <b style="color:var(--danger);">-${money(e.amount)} บาท</b>
       </div>
     </div>
-  `).join('')}
+  `;}).join('')}
   `;
 }
 function openExpenseDetail(id){
   if(id){
     const e = db.expenses.find(x=>x.id===id);
     state.expenseForm = JSON.parse(JSON.stringify(e));
+    state.expenseForm._isNew = false;
   } else {
-    state.expenseForm = {id:null, branchId:state.session.branchId, date:todayISO(), description:'', amount:0};
+    state.expenseForm = {id:uid('exp'), branchId:state.session.branchId, employeeId:state.session.employeeId, date:todayISO(), description:'', amount:0, receiptUrl:null, _isNew:true};
   }
   goTo('expenseDetail');
 }
 function renderExpenseDetail(){
   const e = state.expenseForm;
-  const isEdit = !!e.id;
+  const isEdit = !e._isNew;
+  const emps = db.settings.multiBranch ? db.employees.filter(x=>x.branchId===e.branchId) : db.employees;
   return `
   <button class="btn btn-ghost" onclick="goTo('expenses')">${ICO.back} กลับ</button>
   <div class="card">
     <div class="field"><label>วันที่ซื้อ</label><input type="date" value="${e.date}" oninput="state.expenseForm.date=this.value"></div>
+    <div class="field"><label>ผู้รับผิดชอบ</label>
+      <select onchange="state.expenseForm.employeeId=this.value">
+        ${emps.map(x=>`<option value="${x.id}" ${e.employeeId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}
+      </select>
+    </div>
     <div class="field"><label>ซื้ออะไรบ้าง</label><textarea rows="3" data-fid="exp-desc" oninput="state.expenseForm.description=this.value" placeholder="เช่น แป้งสาลี 5 กก., เนย 2 กก., น้ำมัน 1 ปี๊บ">${esc(e.description)}</textarea></div>
     <div class="field"><label>ยอดจ่ายรวม (บาท)</label><input type="number" step="0.01" data-fid="exp-amount" value="${e.amount}" oninput="state.expenseForm.amount=parseFloat(this.value)||0"></div>
+    <div class="field">
+      <label>รูปใบเสร็จ</label>
+      ${e.receiptUrl?`
+        <img src="${esc(e.receiptUrl)}" style="width:100%;border-radius:10px;border:1px solid var(--border);margin-bottom:8px;">
+        <button class="btn btn-sm btn-danger" onclick="removeReceipt()">${ICO.trash} ลบรูป</button>
+      `:`
+        <label class="upload-box">
+          <input type="file" accept="image/*" capture="environment" onchange="uploadReceipt(this)">
+          <span style="color:var(--accent);">${ICO.camera}</span>
+          <span class="upload-title">แตะเพื่อถ่ายรูปหรือเลือกไฟล์</span>
+          <span class="upload-sub">รองรับรูปใบเสร็จ JPG, PNG</span>
+        </label>
+        <p class="muted" style="margin-top:6px;text-align:center;" id="receiptUploadStatus"></p>
+      `}
+    </div>
   </div>
   <button class="btn btn-primary btn-block" onclick="saveExpenseDetail()">${isEdit?'บันทึกการแก้ไข':'บันทึกรายจ่าย'}</button>
   ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteExpenseDetail()">${ICO.trash} ลบรายการนี้</button>`:''}
   `;
 }
+async function uploadReceipt(inputEl){
+  const file = inputEl.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('receiptUploadStatus');
+  if(statusEl) statusEl.textContent = 'กำลังอัปโหลด...';
+  try{
+    const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+    const path = `${state.expenseForm.id}/${Date.now()}.${ext}`;
+    const { error: upErr } = await sb.storage.from('receipts').upload(path, file, { upsert:true });
+    if(upErr) throw upErr;
+    const { data } = sb.storage.from('receipts').getPublicUrl(path);
+    state.expenseForm.receiptUrl = data.publicUrl;
+    render();
+    toast('แนบรูปแล้ว');
+  }catch(err){
+    if(statusEl) statusEl.textContent = '';
+    toast('อัปโหลดรูปไม่สำเร็จ: '+((err&&err.message)||err));
+  }
+}
+function removeReceipt(){
+  state.expenseForm.receiptUrl = null;
+  render();
+}
 function saveExpenseDetail(){
   const e = state.expenseForm;
   if(!e.date){ toast('กรุณาเลือกวันที่'); return; }
   if(!e.amount || e.amount<=0){ toast('กรุณาใส่ยอดจ่าย'); return; }
-  if(e.id){
+  if(!e._isNew){
     const idx = db.expenses.findIndex(x=>x.id===e.id);
     db.expenses[idx] = e;
-    persist(async ()=>{ const { error } = await sb.from('expenses').update({date:e.date, description:e.description, amount:e.amount}).eq('id',e.id); if(error) throw error; });
+    persist(async ()=>{ const { error } = await sb.from('expenses').update({date:e.date, employee_id:e.employeeId, description:e.description, amount:e.amount, receipt_url:e.receiptUrl}).eq('id',e.id); if(error) throw error; });
     toast('บันทึกการแก้ไขแล้ว');
   } else {
-    e.id = uid('exp');
     e.createdAt = Date.now();
+    e._isNew = false;
     db.expenses.push(e);
-    persist(async ()=>{ const { error } = await sb.from('expenses').insert({id:e.id, branch_id:e.branchId, date:e.date, description:e.description, amount:e.amount, created_at:e.createdAt}); if(error) throw error; });
+    persist(async ()=>{ const { error } = await sb.from('expenses').insert({id:e.id, branch_id:e.branchId, employee_id:e.employeeId, date:e.date, description:e.description, amount:e.amount, receipt_url:e.receiptUrl, created_at:e.createdAt}); if(error) throw error; });
     toast('บันทึกรายจ่ายแล้ว');
   }
   goTo('expenses');
@@ -1701,6 +1860,7 @@ function generateRecurring(rid){
       const ri = r.items.find(i=>i.productId===p.id);
       return {productId:p.id, qty: ri?ri.defaultQty:0, price:p.price};
     }),
+    freebies: [],
   };
   state.customerSearch = cust.name;
   goTo('neworder');
@@ -1729,16 +1889,24 @@ function renderReports(){
     if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
     return o.deliveryDate>=from && o.deliveryDate<=to;
   });
-  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0),0);
+  const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0)+(o.freebies||[]).reduce((x,i)=>x+i.qty,0),0);
   const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
-  const totalCost = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0),0);
+  const totalCost = orders.reduce((s,o)=>{
+    const paidCost = o.items.reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0);
+    const freeCost = (o.freebies||[]).reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0);
+    return s + paidCost + freeCost;
+  },0);
   const profit = totalRevenue - totalCost;
 
-  const byProduct={}; orders.forEach(o=>o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; }));
+  const byProduct={};
+  orders.forEach(o=>{
+    o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
+    (o.freebies||[]).forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
+  });
   const topProducts = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]);
   const maxProd = topProducts.length?topProducts[0][1]:1;
 
-  const byEmp={}; orders.forEach(o=>{ if(!byEmp[o.employeeId]) byEmp[o.employeeId]={qty:0,orders:0}; byEmp[o.employeeId].qty += o.items.reduce((s,i)=>s+i.qty,0); byEmp[o.employeeId].orders++; });
+  const byEmp={}; orders.forEach(o=>{ if(!byEmp[o.employeeId]) byEmp[o.employeeId]={qty:0,orders:0}; byEmp[o.employeeId].qty += o.items.reduce((s,i)=>s+i.qty,0) + (o.freebies||[]).reduce((s,i)=>s+i.qty,0); byEmp[o.employeeId].orders++; });
   const empRows = Object.entries(byEmp).sort((a,b)=>b[1].qty-a[1].qty);
   const maxEmp = empRows.length? Math.max(...empRows.map(e=>e[1].qty)) : 1;
 
