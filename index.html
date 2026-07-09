@@ -1898,6 +1898,13 @@ function renderReports(){
   },0);
   const profit = totalRevenue - totalCost;
 
+  const rangeExpenses = db.expenses.filter(e=>{
+    if(state.branchScope==='mine' && e.branchId!==state.session.branchId) return false;
+    return e.date>=from && e.date<=to;
+  });
+  const totalExpenseLogged = rangeExpenses.reduce((s,e)=>s+e.amount,0);
+  const netProfit = profit - totalExpenseLogged;
+
   const byProduct={};
   orders.forEach(o=>{
     o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
@@ -1933,9 +1940,11 @@ function renderReports(){
   </div>
   <div class="card">
     <div class="row"><span>ยอดขายรวม</span><b>${money(totalRevenue)} บาท</b></div>
-    <div class="row"><span>ต้นทุนวัตถุดิบโดยประมาณ</span><b>${money(totalCost)} บาท</b></div>
+    <div class="row"><span>ต้นทุนวัตถุดิบโดยประมาณ (จากสูตร)</span><b>-${money(totalCost)} บาท</b></div>
+    <div class="row"><span>รายจ่ายที่บันทึกจริง (${rangeExpenses.length} รายการ)</span><b>-${money(totalExpenseLogged)} บาท</b></div>
     <div class="divider"></div>
-    <div class="row"><span style="font-weight:700;">กำไรขั้นต้น</span><b style="color:var(--success);">${money(profit)} บาท</b></div>
+    <div class="row"><span style="font-weight:700;">กำไรสุทธิ</span><b style="color:${netProfit>=0?'var(--success)':'var(--danger)'};font-size:16px;">${money(netProfit)} บาท</b></div>
+    ${totalExpenseLogged===0?`<p class="muted" style="margin-top:8px;font-size:12px;">ยังไม่มีการบันทึกรายจ่ายในช่วงนี้ — ไปบันทึกได้ที่เมนู "ต้นทุน / รายจ่าย"</p>`:''}
   </div>
 
   <h3>ไส้ขายดี</h3>
