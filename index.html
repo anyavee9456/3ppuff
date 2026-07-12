@@ -363,11 +363,13 @@ function seed(){
     branches:[{id:'b1',name:'ร้าน 3P กะหรี่ปั๊ป'}],
     employees:[],
     products:[],
+    semiProducts:[],
     ingredients:[],
     customers:[],
     orders:[],
     recurringOrders:[],
     expenses:[],
+    productStock:[],
     settings:{ promptpayId:'', multiBranch:false },
   };
 }
@@ -416,34 +418,53 @@ function rowToProduct(r, recipeRows){
     id:r.id, name:r.name, price:Number(r.price), cost:Number(r.cost), active:r.active,
     sortOrder: r.sort_order==null ? 0 : Number(r.sort_order),
     color: r.color||null,
-    recipe: (recipeRows||[]).filter(x=>x.product_id===r.id).map(x=>({ingredientId:x.ingredient_id, amount:Number(x.amount)})),
+    recipe: (recipeRows||[]).filter(x=>x.product_id===r.id).map(x=>({
+      componentType: x.component_type||'ingredient',
+      ingredientId: x.ingredient_id||null,
+      semiId: x.semi_id||null,
+      amount:Number(x.amount),
+    })),
   };
 }
 function rowToIngredient(r){ return {id:r.id, name:r.name, unit:r.unit, costPerUnit:Number(r.cost_per_unit), stockQty: r.stock_qty==null?0:Number(r.stock_qty)}; }
+function rowToSemiProduct(r, recipeRows){
+  return {
+    id:r.id, name:r.name, unit:r.unit||'g',
+    sortOrder: r.sort_order==null?0:Number(r.sort_order),
+    recipe: (recipeRows||[]).filter(x=>x.semi_id===r.id).map(x=>({
+      componentType: x.component_type||'ingredient',
+      ingredientId: x.ingredient_id||null,
+      componentSemiId: x.component_semi_id||null,
+      amount:Number(x.amount),
+    })),
+  };
+}
 function sortedAllProducts(){ return [...db.products].sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
 function sortedActiveProducts(){ return sortedAllProducts().filter(p=>p.active!==false); }
+function sortedSemiProducts(){ return [...db.semiProducts].sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
 function rowToCustomer(r){ return {id:r.id, name:r.name, phone:r.phone, address:r.address, type:r.type, branchId:r.branch_id}; }
 function rowToOrder(r, itemRows, freebieRows){
   return {
     id:r.id, branchId:r.branch_id, customerId:r.customer_id, employeeId:r.employee_id,
     deliveryDate:r.delivery_date, jobStatus:r.job_status, paymentStatus:r.payment_status,
     paymentMethod:r.payment_method, createdAt:Number(r.created_at), stockDeducted:!!r.stock_deducted,
-    items: itemRows.filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, qty:Number(i.qty), price:Number(i.price)})),
-    freebies: (freebieRows||[]).filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, qty:Number(i.qty)})),
+    items: itemRows.filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, size:i.size||'M', qty:Number(i.qty), price:Number(i.price)})),
+    freebies: (freebieRows||[]).filter(i=>i.order_id===r.id).map(i=>({productId:i.product_id, size:i.size||'M', qty:Number(i.qty)})),
   };
 }
 function rowToRecurring(r, itemRows){
   return {
     id:r.id, customerId:r.customer_id, dayOfWeek:r.day_of_week, isActive:r.is_active,
-    items: itemRows.filter(i=>i.recurring_order_id===r.id).map(i=>({productId:i.product_id, defaultQty:Number(i.default_qty)})),
+    items: itemRows.filter(i=>i.recurring_order_id===r.id).map(i=>({productId:i.product_id, size:i.size||'M', defaultQty:Number(i.default_qty)})),
   };
 }
 function rowToExpense(r){
   return { id:r.id, branchId:r.branch_id, employeeId:r.employee_id, date:r.date, description:r.description, amount:Number(r.amount), receiptUrl:r.receipt_url||null, createdAt:Number(r.created_at) };
 }
+function rowToProductStock(r){ return { id:r.id, productId:r.product_id, size:r.size, qty:Number(r.qty) }; }
 
 async function loadAllFromSupabase(){
-  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR] = await Promise.all([
+  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR] = await Promise.all([
     sb.from('branches').select('*'),
     sb.from('employees').select('*'),
     sb.from('products').select('*'),
@@ -457,17 +478,22 @@ async function loadAllFromSupabase(){
     sb.from('recipe_items').select('*'),
     sb.from('expenses').select('*'),
     sb.from('order_freebies').select('*'),
+    sb.from('semi_products').select('*'),
+    sb.from('semi_recipe_items').select('*'),
+    sb.from('product_stock').select('*'),
   ]);
-  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR].find(r=>r.error);
+  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR].find(r=>r.error);
   if(firstErr) throw firstErr.error;
   db.branches = brR.data;
   db.employees = empR.data.map(rowToEmployee);
   db.ingredients = ingR.data.map(rowToIngredient);
+  db.semiProducts = semiR.data.map(r=>rowToSemiProduct(r, semiRecR.data));
   db.products = prodR.data.map(r=>rowToProduct(r, recR.data));
   db.customers = custR.data.map(rowToCustomer);
   db.orders = ordR.data.map(r=>rowToOrder(r, itemR.data, freeR.data));
   db.recurringOrders = rordR.data.map(r=>rowToRecurring(r, ritemR.data));
   db.expenses = expR.data.map(rowToExpense);
+  db.productStock = pstockR.data.map(rowToProductStock);
   db.settings = { promptpayId: setR.data ? setR.data.promptpay_id : '', multiBranch: setR.data ? !!setR.data.multi_branch : false };
   db.products.forEach((p,i)=>{ if(!p.color) p.color = nextPaletteColor(i); });
   db.employees.forEach((e,i)=>{ if(!e.color) e.color = nextPaletteColor(i+4); });
@@ -543,6 +569,7 @@ let state = {
   productForm:null,
   employeeForm:null,
   ingredientForm:null,
+  semiForm:null,
   orderSort:{by:null, dir:'asc'},
   customerSearch:'',
   showNewCustomer:false,
@@ -555,6 +582,9 @@ let state = {
   expenseRange:'30',
   expenseCustomFrom: addDays(todayISO(),-30),
   expenseCustomTo: todayISO(),
+  kitchenFrom: todayISO(),
+  kitchenTo: todayISO(),
+  kitchenBuffer: {},
   toastMsg:null,
   qrOrderId:null,
   bulkSheetIds:null,
@@ -621,9 +651,9 @@ function render(){
 function renderTopbar(){
   const emp = db.employees.find(e=>e.id===state.session.employeeId);
   const br = db.branches.find(b=>b.id===state.session.branchId);
-  const isSub = ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','recurring','settings','expenses','expenseDetail'].includes(state.view);
+  const isSub = ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history'].includes(state.view);
   return `<div class="topbar">
-    ${isSub?`<button class="icon-btn" onclick="goTo('${({customerDetail:'customers',employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients',expenseDetail:'expenses'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
+    ${isSub?`<button class="icon-btn" onclick="goTo('${({customerDetail:'customers',employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients',expenseDetail:'expenses',semiDetail:'semiproducts',history:'more'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
     <div class="topbar-row" style="align-items:center;">
       <div style="width:34px;flex-shrink:0;"></div>
       <div style="flex:1;text-align:center;">
@@ -638,14 +668,14 @@ function renderTopbar(){
 function renderNav(){
   const items=[
     {v:'home',ico:ICO.home,label:'หน้าแรก'},
-    {v:'history',ico:ICO.list,label:'ประวัติ'},
+    {v:'kitchen',ico:ICO.box,label:'ครัว'},
     {v:'__new',ico:ICO.plus,label:''},
     {v:'reports',ico:ICO.chart,label:'รายงาน'},
     {v:'more',ico:ICO.menu,label:'อื่นๆ'},
   ];
   return `<div class="navbar">` + items.map(it=>{
     if(it.v==='__new') return `<button class="nav-item" onclick="openNewOrder()"><span class="fab">${ICO.plus}</span></button>`;
-    const active = state.view===it.v || (it.v==='more' && ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','recurring','settings','expenses','expenseDetail'].includes(state.view));
+    const active = state.view===it.v || (it.v==='more' && ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history'].includes(state.view));
     return `<button class="nav-item ${active?'active':''}" onclick="goTo('${it.v}')">${it.ico}<span>${it.label}</span></button>`;
   }).join('') + `</div>`;
 }
@@ -665,6 +695,9 @@ function renderView(){
     case 'productDetail': return renderProductDetail();
     case 'ingredients': return renderIngredients();
     case 'ingredientDetail': return renderIngredientDetail();
+    case 'semiproducts': return renderSemiProducts();
+    case 'semiDetail': return renderSemiDetail();
+    case 'kitchen': return renderKitchen();
     case 'expenses': return renderExpenses();
     case 'expenseDetail': return renderExpenseDetail();
     case 'recurring': return renderRecurring();
@@ -792,8 +825,14 @@ function renderHome(){
   const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
   const byProduct = {};
   orders.forEach(o=>{
-    o.items.forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
-    (o.freebies||[]).forEach(i=>{ byProduct[i.productId]=(byProduct[i.productId]||0)+i.qty; });
+    o.items.forEach(i=>{
+      if(!byProduct[i.productId]) byProduct[i.productId]={M:0,L:0};
+      byProduct[i.productId][i.size||'M'] += i.qty;
+    });
+    (o.freebies||[]).forEach(i=>{
+      if(!byProduct[i.productId]) byProduct[i.productId]={M:0,L:0};
+      byProduct[i.productId][i.size||'M'] += i.qty;
+    });
   });
   const sortedProd = sortedActiveProducts().filter(p=>byProduct[p.id]).map(p=>[p.id, byProduct[p.id]]);
 
@@ -821,10 +860,13 @@ function renderHome(){
   <div class="card">
     <p class="label-sm">ยอดรวมวันนี้</p>
     <p style="margin:2px 0 0;"><span class="big-number" style="font-size:26px;">${totalQty.toLocaleString()} ชิ้น</span><span style="font-size:18px;color:var(--ink-soft);font-weight:700;"> = ${money(totalRevenue)} บาท</span></p>
-    ${sortedProd.length? `<div class="divider"></div><p style="font-size:14px;line-height:1.9;">` + sortedProd.map(([pid,qty])=>{
-      const p = db.products.find(x=>x.id===pid);
-      return `${colorDot(p?p.color:null)}<b>${esc(p?p.name:'?')}</b> ${qty.toLocaleString()} ชิ้น`;
-    }).join(' <span class="muted">|</span> ') + `</p>` : `<p class="muted" style="margin-top:8px;">ยังไม่มีออเดอร์วันนี้</p>`}
+    ${sortedProd.length? `<div class="divider"></div>` + ['M','L'].map(size=>`
+      <p style="font-size:14px;line-height:1.9;"><b style="color:var(--accent-dark);margin-right:4px;">${size}</b>` +
+      sortedProd.map(([pid,sizes])=>{
+        const p = db.products.find(x=>x.id===pid);
+        return `${colorDot(p?p.color:null)}<b>${esc(p?p.name:'?')}</b> ${sizes[size]}`;
+      }).join(' <span class="muted">|</span> ') + `</p>`
+    ).join('') : `<p class="muted" style="margin-top:8px;">ยังไม่มีออเดอร์วันนี้</p>`}
   </div>
 
   ${orders.length>0? `
@@ -836,17 +878,26 @@ function renderHome(){
       orders.forEach(o=>{
         if(!byEmp[o.employeeId]) byEmp[o.employeeId] = { qtyByProduct:{}, revenue:0 };
         o.items.forEach(i=>{
-          byEmp[o.employeeId].qtyByProduct[i.productId] = (byEmp[o.employeeId].qtyByProduct[i.productId]||0) + i.qty;
+          if(!byEmp[o.employeeId].qtyByProduct[i.productId]) byEmp[o.employeeId].qtyByProduct[i.productId]={M:0,L:0};
+          byEmp[o.employeeId].qtyByProduct[i.productId][i.size||'M'] += i.qty;
           byEmp[o.employeeId].revenue += i.qty*i.price;
         });
         (o.freebies||[]).forEach(i=>{
-          byEmp[o.employeeId].qtyByProduct[i.productId] = (byEmp[o.employeeId].qtyByProduct[i.productId]||0) + i.qty;
+          if(!byEmp[o.employeeId].qtyByProduct[i.productId]) byEmp[o.employeeId].qtyByProduct[i.productId]={M:0,L:0};
+          byEmp[o.employeeId].qtyByProduct[i.productId][i.size||'M'] += i.qty;
         });
       });
       const rows = Object.entries(byEmp).sort((a,b)=>b[1].revenue-a[1].revenue);
       return rows.map(([eid,d],idx)=>{
         const emp = db.employees.find(e=>e.id===eid);
-        const parts = activeProducts.map(p=>`${colorDot(p.color)}${esc(p.name)} ${(d.qtyByProduct[p.id]||0).toLocaleString()} ชิ้น`).join(' <span class="muted">|</span> ');
+        const relevantProducts = activeProducts.filter(p=>d.qtyByProduct[p.id]);
+        const parts = ['M','L'].map(size=>
+          `<span style="display:block;margin-top:2px;"><b style="color:var(--accent-dark);margin-right:4px;">${size}</b>` +
+          relevantProducts.map(p=>{
+            const sizes = d.qtyByProduct[p.id]||{M:0,L:0};
+            return `${colorDot(p.color)}${esc(p.name)} ${sizes[size]}`;
+          }).join(' <span class="muted">|</span> ') + `</span>`
+        ).join('');
         return `<div style="padding:8px 0;cursor:pointer;${idx<rows.length-1?'border-bottom:1px solid var(--border);':''}" onclick="viewEmployeeOrders('${eid}')">
           <div class="row"><b>${esc(emp?emp.name:'-')}</b><b style="color:var(--accent-dark);">${money(d.revenue)} บาท</b></div>
           <p class="muted" style="font-size:13px;margin-top:3px;">${parts}</p>
@@ -1103,13 +1154,18 @@ function renderOrdersTable(orders, idsJson){
           <td><b>${esc(cust?cust.name:'ลูกค้า')}</b></td>
           <td><b style="font-size:13.5px;color:${emp&&emp.color?emp.color:'var(--ink)'};">${esc(emp?emp.name:'-')}</b></td>
           ${activeProducts.map(p=>{
-            const item = o.items.find(i=>i.productId===p.id);
-            const qty = item?item.qty:0;
-            const freeItem = (o.freebies||[]).find(i=>i.productId===p.id);
-            const freeQty = freeItem?freeItem.qty:0;
-            const display = qty + freeQty;
+            const qtyM = (o.items.find(i=>i.productId===p.id && (i.size||'M')==='M')||{qty:0}).qty;
+            const qtyL = (o.items.find(i=>i.productId===p.id && i.size==='L')||{qty:0}).qty;
+            const freeM = ((o.freebies||[]).find(i=>i.productId===p.id && (i.size||'M')==='M')||{qty:0}).qty;
+            const freeL = ((o.freebies||[]).find(i=>i.productId===p.id && i.size==='L')||{qty:0}).qty;
+            const dM = qtyM+freeM, dL = qtyL+freeL;
             const color = p.color || '#96691E';
-            return `<td class="qty-cell">${display?`<span style="background:${color}22;color:${color};padding:3px 10px;border-radius:8px;font-weight:800;display:inline-block;min-width:24px;">${display}</span>`:'<span class="muted">–</span>'}${freeQty?`<span class="muted" style="font-size:10px;display:block;margin-top:2px;">🎁${freeQty}</span>`:''}</td>`;
+            const pillFor = (v)=> v ? `<span style="background:${color}22;color:${color};padding:2px 7px;border-radius:7px;font-weight:800;font-size:11px;display:inline-block;min-width:18px;">${v}</span>` : '<span class="muted" style="font-size:11px;">–</span>';
+            return `<td class="qty-cell">
+              <div style="display:flex;gap:4px;align-items:center;justify-content:center;"><span class="muted" style="font-size:9px;width:12px;">M</span>${pillFor(dM)}</div>
+              <div style="display:flex;gap:4px;align-items:center;justify-content:center;margin-top:2px;"><span class="muted" style="font-size:9px;width:12px;">L</span>${pillFor(dL)}</div>
+              ${(freeM||freeL)?`<span class="muted" style="font-size:9px;display:block;margin-top:2px;">🎁${freeM?`M${freeM} `:''}${freeL?`L${freeL}`:''}</span>`:''}
+            </td>`;
           }).join('')}
           <td style="font-weight:700;color:var(--accent-dark);">${money(total)}</td>
           <td onclick="event.stopPropagation();">
@@ -1147,15 +1203,19 @@ function quickPay(id){
 function openNewOrder(){
   const activeProducts = sortedActiveProducts();
   if(activeProducts.length===0){
-    toast('กรุณาเพิ่มไส้กะหรี่ปั๊ปก่อนสร้างออเดอร์');
+    toast('กรุณาเพิ่มเมนูก่อนสร้างออเดอร์');
     goTo('products');
     return;
   }
+  const items = [];
+  activeProducts.forEach(p=>{
+    items.push({productId:p.id, size:'M', qty:0, price:p.price});
+    items.push({productId:p.id, size:'L', qty:0, price:p.price});
+  });
   state.orderForm = {
     id:null, branchId:state.session.branchId, customerId:null, employeeId:state.session.employeeId,
     deliveryDate: state.selectedDate, jobStatus:'pending', paymentStatus:'unpaid', paymentMethod:null,
-    items: activeProducts.map(p=>({productId:p.id, qty:0, price:p.price})),
-    freebies: [],
+    items, freebies: [],
   };
   state.customerSearch=''; state.showNewCustomer=false; state.newCustomerDraft=null;
   goTo('neworder');
@@ -1164,11 +1224,16 @@ function openEditOrder(id){
   const o = db.orders.find(x=>x.id===id);
   const f = JSON.parse(JSON.stringify(o));
   const activeProducts = sortedActiveProducts();
-  f.items = activeProducts.map(p=>{
-    const existing = f.items.find(i=>i.productId===p.id);
-    return existing ? {productId:p.id, qty:existing.qty, price:existing.price} : {productId:p.id, qty:0, price:p.price};
+  const items = [];
+  activeProducts.forEach(p=>{
+    ['M','L'].forEach(size=>{
+      const existing = f.items.find(i=>i.productId===p.id && (i.size||'M')===size);
+      items.push(existing ? {productId:p.id, size, qty:existing.qty, price:existing.price} : {productId:p.id, size, qty:0, price:p.price});
+    });
   });
+  f.items = items;
   if(!f.freebies) f.freebies = [];
+  f.freebies = f.freebies.map(fr=>({productId:fr.productId, size:fr.size||'M', qty:fr.qty}));
   state.orderForm = f;
   const cust = db.customers.find(c=>c.id===o.customerId);
   state.customerSearch = cust?cust.name:'';
@@ -1218,31 +1283,38 @@ function renderOrderForm(){
     `}
   </div>
 
-  <h3>รายการไส้</h3>
+  <h3>รายการเมนู</h3>
   <div class="card">
     ${sortedActiveProducts().length===0 ? `
-      <p class="muted" style="margin-bottom:10px;">ยังไม่มีไส้ในระบบ ต้องเพิ่มไส้ก่อนถึงจะสร้างออเดอร์ได้</p>
-      <button class="btn btn-primary btn-block" onclick="goTo('products')">+ ไปเพิ่มไส้กะหรี่ปั๊ป</button>
+      <p class="muted" style="margin-bottom:10px;">ยังไม่มีเมนูในระบบ ต้องเพิ่มเมนูก่อนถึงจะสร้างออเดอร์ได้</p>
+      <button class="btn btn-primary btn-block" onclick="goTo('products')">+ ไปเพิ่มเมนู</button>
     ` : `
-    ${f.items.map((it)=>{
-      const p = db.products.find(x=>x.id===it.productId);
+    ${sortedActiveProducts().map(p=>{
+      const itemM = f.items.find(i=>i.productId===p.id && i.size==='M');
+      const itemL = f.items.find(i=>i.productId===p.id && i.size==='L');
+      const anyQty = (itemM&&itemM.qty>0) || (itemL&&itemL.qty>0);
       return `
-      <div class="order-item-row" style="flex-direction:column;align-items:stretch;background:${it.qty>0?'var(--accent-bg)':'var(--surface-alt)'};border-radius:10px;padding:8px;">
-        <b style="font-size:14px;">${esc(p?p.name:'')}</b>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
-          <div class="col" style="flex:1;gap:2px;">
-            <label style="margin:0;font-size:11px;">จำนวนชิ้น</label>
-            <div class="qty-box">
-              <button onclick="stepQty('${it.productId}',-1)">−</button>
-              <input type="number" inputmode="numeric" data-fid="item-qty-${it.productId}" value="${it.qty}" oninput="setItemQty('${it.productId}',this.value)">
-              <button onclick="stepQty('${it.productId}',1)">+</button>
+      <div class="order-item-row" style="flex-direction:column;align-items:stretch;background:${anyQty?'var(--accent-bg)':'var(--surface-alt)'};border-radius:10px;padding:8px;">
+        <b style="font-size:14px;">${esc(p.name)}</b>
+        ${['M','L'].map(size=>{
+          const it = size==='M'?itemM:itemL;
+          return `
+          <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+            <span class="badge ${it.qty>0?'badge-progress':''}" style="width:24px;text-align:center;flex-shrink:0;">${size}</span>
+            <div class="col" style="flex:1;gap:2px;">
+              <label style="margin:0;font-size:11px;">จำนวนชิ้น</label>
+              <div class="qty-box">
+                <button onclick="stepQty('${p.id}','${size}',-1)">−</button>
+                <input type="number" inputmode="numeric" data-fid="item-qty-${p.id}-${size}" value="${it.qty}" oninput="setItemQty('${p.id}','${size}',this.value)">
+                <button onclick="stepQty('${p.id}','${size}',1)">+</button>
+              </div>
             </div>
-          </div>
-          <div class="col" style="flex:1;gap:2px;">
-            <label style="margin:0;font-size:11px;">ราคา/ชิ้น (บาท)</label>
-            <input type="number" inputmode="decimal" step="0.01" data-fid="item-price-${it.productId}" value="${it.price}" oninput="setItemPrice('${it.productId}',this.value)" style="height:38px;">
-          </div>
-        </div>
+            <div class="col" style="flex:1;gap:2px;">
+              <label style="margin:0;font-size:11px;">ราคา/ชิ้น (บาท)</label>
+              <input type="number" inputmode="decimal" step="0.01" data-fid="item-price-${p.id}-${size}" value="${it.price}" oninput="setItemPrice('${p.id}','${size}',this.value)" style="height:38px;">
+            </div>
+          </div>`;
+        }).join('')}
       </div>
     `;}).join('')}
     <div class="divider"></div>
@@ -1255,8 +1327,12 @@ function renderOrderForm(){
     ${(f.freebies||[]).length===0?`<p class="muted" style="margin-bottom:10px;">ยังไม่มีของแถมในออเดอร์นี้</p>`:''}
     ${(f.freebies||[]).map((fr,idx)=>`
       <div class="order-item-row">
-        <select onchange="setFreebieProduct(${idx},this.value)">
+        <select onchange="setFreebieProduct(${idx},this.value)" style="flex:2;">
           ${db.products.filter(p=>p.active!==false).map(p=>`<option value="${p.id}" ${fr.productId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
+        </select>
+        <select onchange="setFreebieSize(${idx},this.value)" style="flex:0.7;">
+          <option value="M" ${fr.size==='M'?'selected':''}>M</option>
+          <option value="L" ${fr.size==='L'?'selected':''}>L</option>
         </select>
         <div class="qty-box">
           <button onclick="stepFreebieQty(${idx},-1)">−</button>
@@ -1334,40 +1410,41 @@ function confirmNewCustomer(){
   render();
   toast('เพิ่มลูกค้าใหม่แล้ว');
 }
-function setItemPrice(pid,val){
-  const it = state.orderForm.items.find(i=>i.productId===pid);
+function setItemPrice(pid,size,val){
+  const it = state.orderForm.items.find(i=>i.productId===pid && i.size===size);
   it.price = Math.max(0, parseFloat(val)||0);
   render();
 }
-function setItemQty(pid,val){
-  const it = state.orderForm.items.find(i=>i.productId===pid);
+function setItemQty(pid,size,val){
+  const it = state.orderForm.items.find(i=>i.productId===pid && i.size===size);
   it.qty = Math.max(0, parseInt(val)||0);
   render();
 }
-function stepQty(pid,delta){
-  const it = state.orderForm.items.find(i=>i.productId===pid);
+function stepQty(pid,size,delta){
+  const it = state.orderForm.items.find(i=>i.productId===pid && i.size===size);
   it.qty = Math.max(0, it.qty+delta);
   render();
 }
 function addFreebie(){
   const active = db.products.filter(p=>p.active!==false);
-  if(active.length===0){ toast('ยังไม่มีไส้ในระบบ'); return; }
+  if(active.length===0){ toast('ยังไม่มีเมนูในระบบ'); return; }
   if(!state.orderForm.freebies) state.orderForm.freebies=[];
-  state.orderForm.freebies.push({productId:active[0].id, qty:1});
+  state.orderForm.freebies.push({productId:active[0].id, size:'M', qty:1});
   render();
 }
 function removeFreebie(idx){ state.orderForm.freebies.splice(idx,1); render(); }
 function setFreebieProduct(idx,val){ state.orderForm.freebies[idx].productId=val; render(); }
+function setFreebieSize(idx,val){ state.orderForm.freebies[idx].size=val; render(); }
 function setFreebieQty(idx,val){ state.orderForm.freebies[idx].qty = Math.max(0, parseInt(val)||0); render(); }
 function stepFreebieQty(idx,delta){ const fr=state.orderForm.freebies[idx]; fr.qty=Math.max(0,fr.qty+delta); render(); }
 function cancelOrderForm(){ state.orderForm=null; goTo('home'); }
 function saveOrder(){
   const f = state.orderForm;
   if(!f.customerId){ toast('กรุณาเลือกหรือเพิ่มลูกค้า'); return; }
-  const chosen = f.items.filter(i=>i.qty>0).map(i=>({productId:i.productId, qty:i.qty, price:Number(i.price)||0}));
-  if(chosen.length===0){ toast('กรุณาใส่จำนวนอย่างน้อย 1 ไส้'); return; }
+  const chosen = f.items.filter(i=>i.qty>0).map(i=>({productId:i.productId, size:i.size, qty:i.qty, price:Number(i.price)||0}));
+  if(chosen.length===0){ toast('กรุณาใส่จำนวนอย่างน้อย 1 รายการ'); return; }
   f.items = chosen;
-  f.freebies = (f.freebies||[]).filter(fr=>fr.qty>0).map(fr=>({productId:fr.productId, qty:fr.qty}));
+  f.freebies = (f.freebies||[]).filter(fr=>fr.qty>0).map(fr=>({productId:fr.productId, size:fr.size||'M', qty:fr.qty}));
   if(f.id){
     const idx = db.orders.findIndex(o=>o.id===f.id);
     db.orders[idx] = f;
@@ -1387,11 +1464,11 @@ function saveOrder(){
     });
     if(e1) throw e1;
     await sb.from('order_items').delete().eq('order_id', f.id);
-    const { error:e2 } = await sb.from('order_items').insert(f.items.map(i=>({order_id:f.id, product_id:i.productId, qty:i.qty, price:i.price})));
+    const { error:e2 } = await sb.from('order_items').insert(f.items.map(i=>({order_id:f.id, product_id:i.productId, size:i.size, qty:i.qty, price:i.price})));
     if(e2) throw e2;
     await sb.from('order_freebies').delete().eq('order_id', f.id);
     if(f.freebies.length){
-      const { error:e3 } = await sb.from('order_freebies').insert(f.freebies.map(fr=>({order_id:f.id, product_id:fr.productId, qty:fr.qty})));
+      const { error:e3 } = await sb.from('order_freebies').insert(f.freebies.map(fr=>({order_id:f.id, product_id:fr.productId, size:fr.size, qty:fr.qty})));
       if(e3) throw e3;
     }
   });
@@ -1678,12 +1755,231 @@ function saveIngredientDetail(){
 }
 function deleteIngredientDetail(){
   const i = state.ingredientForm;
-  if(!confirm('ยืนยันลบวัตถุดิบนี้? (จะถูกเอาออกจากสูตรของไส้ที่ใช้อยู่ด้วย)')) return;
+  if(!confirm('ยืนยันลบวัตถุดิบนี้? (จะถูกเอาออกจากสูตรที่ใช้อยู่ด้วย)')) return;
   db.ingredients = db.ingredients.filter(x=>x.id!==i.id);
   db.products.forEach(p=>{ p.recipe = (p.recipe||[]).filter(r=>r.ingredientId!==i.id); });
+  db.semiProducts.forEach(s=>{ s.recipe = (s.recipe||[]).filter(r=>r.ingredientId!==i.id); });
   persist(async ()=>{ const { error } = await sb.from('ingredients').delete().eq('id',i.id); if(error) throw error; });
   toast('ลบวัตถุดิบแล้ว');
   goTo('ingredients');
+}
+
+/* ---------- สูตรเมนูกึ่งสำเร็จรูป (SEMI-FINISHED) ---------- */
+function semiComponentInfo(r){
+  if(r.componentType==='semi'){
+    const s = db.semiProducts.find(x=>x.id===r.componentSemiId);
+    return { name: s?s.name:'?', unit: s?s.unit:'', costPerUnit: s?semiComputedCost(s):0 };
+  }
+  const ing = db.ingredients.find(i=>i.id===r.ingredientId);
+  return { name: ing?ing.name:'?', unit: ing?ing.unit:'', costPerUnit: ing?ing.costPerUnit:0 };
+}
+function semiComputedCost(s, visiting){
+  visiting = visiting || new Set();
+  if(visiting.has(s.id)) return 0;
+  visiting.add(s.id);
+  return (s.recipe||[]).reduce((sum,r)=>{
+    if(r.componentType==='semi'){
+      const child = db.semiProducts.find(x=>x.id===r.componentSemiId);
+      if(!child) return sum;
+      return sum + semiComputedCost(child, visiting)*r.amount;
+    }
+    const ing = db.ingredients.find(i=>i.id===r.ingredientId);
+    return sum + (ing?ing.costPerUnit*r.amount:0);
+  }, 0);
+}
+function renderSemiProducts(){
+  const list = sortedSemiProducts();
+  return `
+  <p class="muted" style="margin-bottom:12px;">วัตถุดิบกึ่งสำเร็จรูป เช่น แป้งนอก แป้งใน หรือไส้แต่ละชนิด — ทำจากวัตถุดิบจริง แล้วเอาไปใช้ในสูตรเมนูสำเร็จรูปอีกที</p>
+  <button class="btn btn-primary btn-block" onclick="openSemiDetail(null)">+ เพิ่มสูตรกึ่งสำเร็จรูป</button>
+  <div style="height:12px;"></div>
+  ${list.length===0?`<div class="empty">ยังไม่มีสูตรกึ่งสำเร็จรูปในระบบ</div>`:list.map((s,idx)=>`
+    <div class="card">
+      <div class="row" style="cursor:pointer;" onclick="openSemiDetail('${s.id}')">
+        <div class="col"><b>${esc(s.name)}</b><span class="muted">ต้นทุน ${money(semiComputedCost(s))} บาท/${esc(s.unit)}${s.recipe&&s.recipe.length?` · ${s.recipe.length} วัตถุดิบ`:''}</span></div>
+      </div>
+      <div class="row" style="margin-top:8px;" onclick="event.stopPropagation();">
+        <span class="muted" style="font-size:12px;">ลำดับการแสดงผล</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" ${idx===0?'disabled':''} onclick="moveSemi('${s.id}',-1)">▲</button>
+          <button class="btn btn-sm" ${idx===list.length-1?'disabled':''} onclick="moveSemi('${s.id}',1)">▼</button>
+        </div>
+      </div>
+    </div>
+  `).join('')}
+  `;
+}
+function moveSemi(id,dir){
+  const list = sortedSemiProducts();
+  const idx = list.findIndex(s=>s.id===id);
+  const swapIdx = idx+dir;
+  if(swapIdx<0||swapIdx>=list.length) return;
+  [list[idx],list[swapIdx]] = [list[swapIdx],list[idx]];
+  list.forEach((s,i)=>{ s.sortOrder=i; });
+  persist(async ()=>{
+    for(const s of list){ const { error } = await sb.from('semi_products').update({sort_order:s.sortOrder}).eq('id',s.id); if(error) throw error; }
+  });
+  render();
+}
+function openSemiDetail(id){
+  if(id){
+    const s = db.semiProducts.find(x=>x.id===id);
+    state.semiForm = JSON.parse(JSON.stringify(s));
+    if(!state.semiForm.recipe) state.semiForm.recipe=[];
+  } else {
+    state.semiForm = {id:null, name:'', unit:'g', sortOrder:db.semiProducts.length, recipe:[]};
+  }
+  goTo('semiDetail');
+}
+function renderSemiDetail(){
+  const s = state.semiForm;
+  const isEdit = !!s.id;
+  const computed = semiComputedCost(s);
+  const otherSemis = db.semiProducts.filter(x=>x.id!==s.id);
+  const hasComponents = db.ingredients.length>0 || otherSemis.length>0;
+  return `
+  <button class="btn btn-ghost" onclick="goTo('semiproducts')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="field"><label>ชื่อสูตรกึ่งสำเร็จรูป</label><input data-fid="semi-name" value="${esc(s.name)}" oninput="state.semiForm.name=this.value" placeholder="เช่น แป้งนอก"></div>
+    <div class="field"><label>หน่วยนับ</label>
+      <select onchange="state.semiForm.unit=this.value">
+        ${['g','kg','ml','l','ชิ้น'].map(u=>`<option value="${u}" ${s.unit===u?'selected':''}>${u}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <h3>สูตร (วัตถุดิบจริง หรือกึ่งสำเร็จรูปอื่น)</h3>
+  <div class="card">
+    ${!hasComponents?`
+      <p class="muted" style="margin-bottom:10px;">ยังไม่มีวัตถุดิบหรือสูตรกึ่งสำเร็จรูปอื่นในระบบ ต้องเพิ่มก่อนถึงจะกำหนดสูตรได้</p>
+      <button class="btn btn-block" onclick="goTo('ingredients')">+ ไปเพิ่มวัตถุดิบ</button>
+    `:`
+      ${(s.recipe||[]).map((r,idx)=>{
+        const info = semiComponentInfo(r);
+        return `<div class="order-item-row" style="flex-direction:column;align-items:stretch;background:var(--surface-alt);border-radius:10px;padding:8px;">
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn btn-sm ${r.componentType==='ingredient'?'btn-primary':''}" style="flex:1;" onclick="setSemiComponentType(${idx},'ingredient')">วัตถุดิบจริง</button>
+            <button class="btn btn-sm ${r.componentType==='semi'?'btn-primary':''}" style="flex:1;" ${otherSemis.length===0?'disabled':''} onclick="setSemiComponentType(${idx},'semi')">กึ่งสำเร็จรูปอื่น</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select onchange="setSemiComponent(${idx},this.value)" style="flex:2;">
+              ${r.componentType==='semi'
+                ? otherSemis.map(x=>`<option value="${x.id}" ${r.componentSemiId===x.id?'selected':''}>${esc(x.name)}</option>`).join('')
+                : db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+            </select>
+            <div class="qty-box" style="flex:1;">
+              <input type="number" step="0.1" value="${r.amount}" oninput="setSemiAmount(${idx},this.value)">
+            </div>
+            <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
+            <button class="btn btn-ghost btn-sm" onclick="removeSemiIngredient(${idx})">${ICO.trash}</button>
+          </div>
+        </div>`;
+      }).join('')}
+      <button class="btn btn-sm" onclick="addSemiIngredient()">+ เพิ่มรายการในสูตร</button>
+      ${(s.recipe||[]).length>0?`
+        <div class="divider"></div>
+        <div class="row"><span>ต้นทุนคำนวณจากสูตร (ต่อ ${esc(s.unit)})</span><b>${money(computed)} บาท</b></div>
+      `:''}
+    `}
+  </div>
+  <button class="btn btn-primary btn-block" onclick="saveSemiDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มสูตรกึ่งสำเร็จรูป'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteSemiDetail()">${ICO.trash} ลบสูตรนี้</button>`:''}
+  `;
+}
+function addSemiIngredient(){
+  if(!state.semiForm.recipe) state.semiForm.recipe=[];
+  if(db.ingredients.length>0){
+    state.semiForm.recipe.push({componentType:'ingredient', ingredientId:db.ingredients[0].id, componentSemiId:null, amount:1});
+  } else {
+    const otherSemis = db.semiProducts.filter(x=>x.id!==state.semiForm.id);
+    state.semiForm.recipe.push({componentType:'semi', ingredientId:null, componentSemiId:otherSemis[0]?otherSemis[0].id:null, amount:1});
+  }
+  render();
+}
+function setSemiComponentType(idx,type){
+  const r = state.semiForm.recipe[idx];
+  const otherSemis = db.semiProducts.filter(x=>x.id!==state.semiForm.id);
+  r.componentType = type;
+  if(type==='ingredient'){ r.ingredientId = db.ingredients[0]?db.ingredients[0].id:null; r.componentSemiId=null; }
+  else { r.componentSemiId = otherSemis[0]?otherSemis[0].id:null; r.ingredientId=null; }
+  render();
+}
+function setSemiComponent(idx,val){
+  const r = state.semiForm.recipe[idx];
+  if(r.componentType==='semi') r.componentSemiId=val; else r.ingredientId=val;
+  render();
+}
+function setSemiAmount(idx,val){ state.semiForm.recipe[idx].amount=parseFloat(val)||0; render(); }
+function removeSemiIngredient(idx){ state.semiForm.recipe.splice(idx,1); render(); }
+function semiRecipeHasCycle(startId, recipe){
+  const visited = new Set();
+  function walk(id){
+    if(id===startId && visited.size>0) return true;
+    if(visited.has(id)) return false;
+    visited.add(id);
+    const s = id===startId ? {recipe} : db.semiProducts.find(x=>x.id===id);
+    if(!s) return false;
+    for(const r of (s.recipe||[])){
+      if(r.componentType==='semi' && r.componentSemiId){
+        if(r.componentSemiId===startId) return true;
+        if(walk(r.componentSemiId)) return true;
+      }
+    }
+    return false;
+  }
+  return walk(startId);
+}
+function saveSemiDetail(){
+  const s = state.semiForm;
+  if(!s.name.trim()){ toast('กรุณากรอกชื่อ'); return; }
+  if(s.id && semiRecipeHasCycle(s.id, s.recipe)){
+    toast('สูตรนี้อ้างอิงวนกลับมาหาตัวเอง กรุณาแก้ไขก่อนบันทึก');
+    return;
+  }
+  const recipeRows = (s.recipe||[]).map(r=>({
+    component_type:r.componentType||'ingredient',
+    ingredient_id: r.componentType==='semi' ? null : r.ingredientId,
+    component_semi_id: r.componentType==='semi' ? r.componentSemiId : null,
+    amount:r.amount,
+  }));
+  if(s.id){
+    const idx = db.semiProducts.findIndex(x=>x.id===s.id);
+    db.semiProducts[idx] = s;
+    persist(async ()=>{
+      const { error:e1 } = await sb.from('semi_products').update({name:s.name, unit:s.unit}).eq('id',s.id);
+      if(e1) throw e1;
+      await sb.from('semi_recipe_items').delete().eq('semi_id',s.id);
+      if(recipeRows.length){
+        recipeRows.forEach(r=>r.semi_id=s.id);
+        const { error:e2 } = await sb.from('semi_recipe_items').insert(recipeRows);
+        if(e2) throw e2;
+      }
+    });
+    toast('บันทึกการแก้ไขแล้ว');
+  } else {
+    s.id = uid('semi');
+    db.semiProducts.push(s);
+    persist(async ()=>{
+      const { error:e1 } = await sb.from('semi_products').insert({id:s.id, name:s.name, unit:s.unit, sort_order:s.sortOrder||0});
+      if(e1) throw e1;
+      if(recipeRows.length){
+        recipeRows.forEach(r=>r.semi_id=s.id);
+        const { error:e2 } = await sb.from('semi_recipe_items').insert(recipeRows);
+        if(e2) throw e2;
+      }
+    });
+    toast('เพิ่มสูตรกึ่งสำเร็จรูปแล้ว');
+  }
+  goTo('semiproducts');
+}
+function deleteSemiDetail(){
+  const s = state.semiForm;
+  if(!confirm('ยืนยันลบสูตรนี้? (จะถูกเอาออกจากสูตรที่ใช้อยู่ทั้งหมดด้วย)')) return;
+  db.semiProducts = db.semiProducts.filter(x=>x.id!==s.id);
+  db.products.forEach(p=>{ p.recipe = (p.recipe||[]).filter(r=>r.semiId!==s.id); });
+  db.semiProducts.forEach(other=>{ other.recipe = (other.recipe||[]).filter(r=>r.componentSemiId!==s.id); });
+  persist(async ()=>{ const { error } = await sb.from('semi_products').delete().eq('id',s.id); if(error) throw error; });
+  toast('ลบแล้ว');
+  goTo('semiproducts');
 }
 
 /* ---------- PRODUCTS ---------- */
@@ -1735,21 +2031,30 @@ function openProductDetail(id){
   }
   goTo('productDetail');
 }
+function recipeComponentInfo(r){
+  if(r.componentType==='semi'){
+    const s = db.semiProducts.find(x=>x.id===r.semiId);
+    return { name: s?s.name:'?', unit: s?s.unit:'', costPerUnit: s?semiComputedCost(s):0 };
+  }
+  const ing = db.ingredients.find(i=>i.id===r.ingredientId);
+  return { name: ing?ing.name:'?', unit: ing?ing.unit:'', costPerUnit: ing?ing.costPerUnit:0 };
+}
 function recipeComputedCost(p){
-  return (p.recipe||[]).reduce((s,r)=>{ const ing=db.ingredients.find(i=>i.id===r.ingredientId); return s + (ing?ing.costPerUnit*r.amount:0); },0);
+  return (p.recipe||[]).reduce((s,r)=>s + recipeComponentInfo(r).costPerUnit*r.amount, 0);
 }
 function renderProductDetail(){
   const p = state.productForm;
   const isEdit = !!p.id;
   const computed = recipeComputedCost(p);
+  const hasComponents = db.ingredients.length>0 || db.semiProducts.length>0;
   return `
   <button class="btn btn-ghost" onclick="goTo('products')">${ICO.back} กลับ</button>
   <div class="card">
-    <div class="field"><label>ชื่อไส้</label><input data-fid="pd-name" value="${esc(p.name)}" oninput="state.productForm.name=this.value" placeholder="เช่น ไส้ไก่"></div>
+    <div class="field"><label>ชื่อเมนู</label><input data-fid="pd-name" value="${esc(p.name)}" oninput="state.productForm.name=this.value" placeholder="เช่น กะหรี่ปั๊ปไส้ไก่"></div>
     <div class="field"><label>ราคาขายต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-price" value="${p.price}" oninput="state.productForm.price=parseFloat(this.value)||0"></div>
     <div class="field"><label>ต้นทุนต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-cost" value="${p.cost}" oninput="state.productForm.cost=parseFloat(this.value)||0"></div>
     <div class="field">
-      <label>สีประจำไส้</label>
+      <label>สีประจำเมนู</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${COLOR_PALETTE.map(c=>`<button onclick="state.productForm.color='${c}';render();" style="width:34px;height:34px;border-radius:50%;background:${c};border:3px solid ${p.color===c?'var(--ink)':'transparent'};cursor:pointer;"></button>`).join('')}
       </div>
@@ -1760,26 +2065,35 @@ function renderProductDetail(){
     </div>
   </div>
 
-  <h3>สูตร / วัตถุดิบที่ใช้ต่อชิ้น</h3>
+  <h3>สูตร (วัตถุดิบจริง หรือของกึ่งสำเร็จรูป)</h3>
   <div class="card">
-    ${db.ingredients.length===0?`
-      <p class="muted" style="margin-bottom:10px;">ยังไม่มีวัตถุดิบในระบบ ต้องเพิ่มวัตถุดิบก่อนถึงจะกำหนดสูตรได้</p>
-      <button class="btn btn-block" onclick="goTo('ingredients')">+ ไปเพิ่มวัตถุดิบ</button>
+    ${!hasComponents?`
+      <p class="muted" style="margin-bottom:10px;">ยังไม่มีวัตถุดิบหรือสูตรกึ่งสำเร็จรูปในระบบ ต้องเพิ่มก่อนถึงจะกำหนดสูตรได้</p>
+      <button class="btn btn-block" onclick="goTo('ingredients')" style="margin-bottom:8px;">+ ไปเพิ่มวัตถุดิบ</button>
+      <button class="btn btn-block" onclick="goTo('semiproducts')">+ ไปเพิ่มสูตรกึ่งสำเร็จรูป</button>
     `:`
       ${(p.recipe||[]).map((r,idx)=>{
-        const ing = db.ingredients.find(i=>i.id===r.ingredientId);
-        return `<div class="order-item-row">
-          <select onchange="setRecipeIngredient(${idx},this.value)">
-            ${db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
-          </select>
-          <div class="qty-box" style="flex:1;">
-            <input type="number" step="0.1" data-fid="recipe-amount-${idx}" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
+        const info = recipeComponentInfo(r);
+        return `<div class="order-item-row" style="flex-direction:column;align-items:stretch;background:var(--surface-alt);border-radius:10px;padding:8px;">
+          <div style="display:flex;gap:6px;margin-bottom:6px;">
+            <button class="btn btn-sm ${r.componentType==='ingredient'?'btn-primary':''}" style="flex:1;" onclick="setRecipeComponentType(${idx},'ingredient')">วัตถุดิบจริง</button>
+            <button class="btn btn-sm ${r.componentType==='semi'?'btn-primary':''}" style="flex:1;" onclick="setRecipeComponentType(${idx},'semi')">กึ่งสำเร็จรูป</button>
           </div>
-          <span class="muted" style="width:34px;flex-shrink:0;">${esc(ing?ing.unit:'')}</span>
-          <button class="btn btn-ghost btn-sm" onclick="removeRecipeItem(${idx})">${ICO.trash}</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select onchange="setRecipeComponent(${idx},this.value)" style="flex:2;">
+              ${r.componentType==='semi'
+                ? db.semiProducts.map(s=>`<option value="${s.id}" ${r.semiId===s.id?'selected':''}>${esc(s.name)}</option>`).join('')
+                : db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
+            </select>
+            <div class="qty-box" style="flex:1;">
+              <input type="number" step="0.1" data-fid="recipe-amount-${idx}" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
+            </div>
+            <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
+            <button class="btn btn-ghost btn-sm" onclick="removeRecipeItem(${idx})">${ICO.trash}</button>
+          </div>
         </div>`;
       }).join('')}
-      <button class="btn btn-sm" onclick="addRecipeItem()">+ เพิ่มวัตถุดิบในสูตร</button>
+      <button class="btn btn-sm" onclick="addRecipeItem()">+ เพิ่มรายการในสูตร</button>
       ${(p.recipe||[]).length>0?`
         <div class="divider"></div>
         <div class="row"><span>ต้นทุนคำนวณจากสูตร</span><b>${money(computed)} บาท</b></div>
@@ -1788,21 +2102,42 @@ function renderProductDetail(){
     `}
   </div>
 
-  <button class="btn btn-primary btn-block" onclick="saveProductDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มไส้ใหม่'}</button>
-  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteProductDetail()">${ICO.trash} ลบไส้นี้</button>`:''}
+  <button class="btn btn-primary btn-block" onclick="saveProductDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มเมนูใหม่'}</button>
+  ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteProductDetail()">${ICO.trash} ลบเมนูนี้</button>`:''}
   `;
 }
 function addRecipeItem(){
   if(!state.productForm.recipe) state.productForm.recipe=[];
-  state.productForm.recipe.push({ingredientId:db.ingredients[0].id, amount:1});
+  if(db.ingredients.length>0){
+    state.productForm.recipe.push({componentType:'ingredient', ingredientId:db.ingredients[0].id, semiId:null, amount:1});
+  } else {
+    state.productForm.recipe.push({componentType:'semi', ingredientId:null, semiId:db.semiProducts[0].id, amount:1});
+  }
   render();
 }
-function setRecipeIngredient(idx,val){ state.productForm.recipe[idx].ingredientId=val; render(); }
+function setRecipeComponentType(idx,type){
+  const r = state.productForm.recipe[idx];
+  r.componentType = type;
+  if(type==='ingredient'){ r.ingredientId = db.ingredients[0]?db.ingredients[0].id:null; r.semiId=null; }
+  else { r.semiId = db.semiProducts[0]?db.semiProducts[0].id:null; r.ingredientId=null; }
+  render();
+}
+function setRecipeComponent(idx,val){
+  const r = state.productForm.recipe[idx];
+  if(r.componentType==='semi') r.semiId=val; else r.ingredientId=val;
+  render();
+}
 function setRecipeAmount(idx,val){ state.productForm.recipe[idx].amount=parseFloat(val)||0; render(); }
 function removeRecipeItem(idx){ state.productForm.recipe.splice(idx,1); render(); }
 function saveProductDetail(){
   const p = state.productForm;
-  if(!p.name.trim()){ toast('กรุณากรอกชื่อไส้'); return; }
+  if(!p.name.trim()){ toast('กรุณากรอกชื่อเมนู'); return; }
+  const recipeRows = (p.recipe||[]).map(r=>({
+    product_id:p.id, component_type:r.componentType||'ingredient',
+    ingredient_id: r.componentType==='semi' ? null : r.ingredientId,
+    semi_id: r.componentType==='semi' ? r.semiId : null,
+    amount:r.amount,
+  }));
   if(p.id){
     const idx = db.products.findIndex(x=>x.id===p.id);
     db.products[idx] = p;
@@ -1810,8 +2145,9 @@ function saveProductDetail(){
       const { error:e1 } = await sb.from('products').update({name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color}).eq('id',p.id);
       if(e1) throw e1;
       await sb.from('recipe_items').delete().eq('product_id',p.id);
-      if(p.recipe && p.recipe.length){
-        const { error:e2 } = await sb.from('recipe_items').insert(p.recipe.map(r=>({product_id:p.id, ingredient_id:r.ingredientId, amount:r.amount})));
+      if(recipeRows.length){
+        recipeRows.forEach(r=>r.product_id=p.id);
+        const { error:e2 } = await sb.from('recipe_items').insert(recipeRows);
         if(e2) throw e2;
       }
     });
@@ -1822,18 +2158,19 @@ function saveProductDetail(){
     persist(async ()=>{
       const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color});
       if(e1) throw e1;
-      if(p.recipe && p.recipe.length){
-        const { error:e2 } = await sb.from('recipe_items').insert(p.recipe.map(r=>({product_id:p.id, ingredient_id:r.ingredientId, amount:r.amount})));
+      if(recipeRows.length){
+        recipeRows.forEach(r=>r.product_id=p.id);
+        const { error:e2 } = await sb.from('recipe_items').insert(recipeRows);
         if(e2) throw e2;
       }
     });
-    toast('เพิ่มไส้ใหม่แล้ว');
+    toast('เพิ่มเมนูใหม่แล้ว');
   }
   goTo('products');
 }
 function deleteProductDetail(){
   const p = state.productForm;
-  if(!confirm('ยืนยันลบไส้นี้? (ประวัติออเดอร์เก่าจะยังอยู่)')) return;
+  if(!confirm('ยืนยันลบเมนูนี้? (ประวัติออเดอร์เก่าจะยังอยู่)')) return;
   db.products = db.products.filter(x=>x.id!==p.id);
   persist(async ()=>{ const { error } = await sb.from('products').delete().eq('id',p.id); if(error) throw error; });
   toast('ลบไส้แล้ว');
@@ -2075,6 +2412,176 @@ function deleteExpenseDetail(){
   goTo('expenses');
 }
 
+/* ---------- ครัว (KITCHEN / PRODUCTION PLANNING) ---------- */
+function productStockKey(pid,size){ return `${pid}_${size}`; }
+function getProductStock(pid,size){
+  const rec = db.productStock.find(x=>x.productId===pid && x.size===size);
+  return rec ? rec.qty : 0;
+}
+function setProductStock(pid,size,qty){
+  qty = Math.max(0, qty);
+  let rec = db.productStock.find(x=>x.productId===pid && x.size===size);
+  const id = productStockKey(pid,size);
+  if(!rec){ rec = {id, productId:pid, size, qty}; db.productStock.push(rec); }
+  else rec.qty = qty;
+  persist(async ()=>{ const { error } = await sb.from('product_stock').upsert({id, product_id:pid, size, qty}); if(error) throw error; });
+  render();
+}
+function adjustProductStock(pid,size,delta){ setProductStock(pid,size, getProductStock(pid,size)+delta); }
+function adjustProductStockPrompt(pid,size){
+  const p = db.products.find(x=>x.id===pid);
+  const val = prompt(`ปรับสต็อก "${p.name}" ไซส์ ${size}\nใส่จำนวนที่จะเพิ่ม (ใส่ติดลบถ้าจะลด):`, '0');
+  const delta = parseFloat(val);
+  if(isNaN(delta)||delta===0) return;
+  adjustProductStock(pid,size,delta);
+}
+function getBuffer(pid,size){ return state.kitchenBuffer[productStockKey(pid,size)]||0; }
+function stepBuffer(pid,size,delta){ const k=productStockKey(pid,size); state.kitchenBuffer[k]=Math.max(0,(state.kitchenBuffer[k]||0)+delta); render(); }
+function setBuffer(pid,size,val){ state.kitchenBuffer[productStockKey(pid,size)]=Math.max(0,parseInt(val)||0); render(); }
+
+function renderKitchen(){
+  const from = state.kitchenFrom, to = state.kitchenTo;
+  const activeProducts = sortedActiveProducts();
+  const orders = db.orders.filter(o=>{
+    if(o.jobStatus==='cancelled') return false;
+    if(state.branchScope==='mine' && o.branchId!==state.session.branchId) return false;
+    return o.deliveryDate>=from && o.deliveryDate<=to;
+  });
+  const ordered = {};
+  orders.forEach(o=>{
+    o.items.forEach(i=>{ const k=productStockKey(i.productId,i.size||'M'); ordered[k]=(ordered[k]||0)+i.qty; });
+    (o.freebies||[]).forEach(i=>{ const k=productStockKey(i.productId,i.size||'M'); ordered[k]=(ordered[k]||0)+i.qty; });
+  });
+
+  const toProduceByProduct = {};
+  activeProducts.forEach(p=>{
+    ['M','L'].forEach(size=>{
+      const k = productStockKey(p.id,size);
+      const need = ordered[k]||0;
+      const stock = getProductStock(p.id,size);
+      const buf = getBuffer(p.id,size);
+      const toProduce = Math.max(0, need-stock) + buf;
+      toProduceByProduct[p.id] = (toProduceByProduct[p.id]||0) + toProduce;
+    });
+  });
+
+  const rawTotals = {};
+  const semiTotals = {};
+  function addSemiNeed(semiId, amountNeeded, visiting){
+    visiting = visiting || new Set();
+    if(!semiId || visiting.has(semiId)) return;
+    visiting.add(semiId);
+    semiTotals[semiId] = (semiTotals[semiId]||0) + amountNeeded;
+    const sp = db.semiProducts.find(x=>x.id===semiId);
+    if(!sp) return;
+    (sp.recipe||[]).forEach(r=>{
+      if(r.componentType==='semi' && r.componentSemiId){ addSemiNeed(r.componentSemiId, r.amount*amountNeeded, visiting); }
+      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*amountNeeded; }
+    });
+  }
+  activeProducts.forEach(p=>{
+    const qty = toProduceByProduct[p.id]||0;
+    if(qty<=0) return;
+    (p.recipe||[]).forEach(r=>{
+      if(r.componentType==='semi' && r.semiId){ addSemiNeed(r.semiId, r.amount*qty); }
+      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*qty; }
+    });
+  });
+
+  const sizeRow = (label, valFn, opts) => {
+    opts = opts || {};
+    return `<div style="padding:6px 0;">
+      <b style="font-size:12.5px;color:var(--accent-dark);">${label}</b>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+        ${activeProducts.map(p=>{
+          const val = valFn(p);
+          if(opts.editable){
+            return `<div style="display:flex;align-items:center;gap:4px;">
+              ${colorDot(p.color)}<span style="font-size:13px;">${esc(p.name)}</span>
+              <button class="btn btn-sm" style="padding:3px 8px;" onclick="adjustProductStock('${p.id}','${label}',-1)">−</button>
+              <b style="min-width:18px;text-align:center;display:inline-block;">${val}</b>
+              <button class="btn btn-sm" style="padding:3px 8px;" onclick="adjustProductStock('${p.id}','${label}',1)">+</button>
+            </div>`;
+          }
+          if(opts.buffer){
+            return `<div style="display:flex;align-items:center;gap:4px;">
+              ${colorDot(p.color)}<span style="font-size:13px;">${esc(p.name)} <b>${val}</b> ชิ้น</span>
+              <button class="btn btn-sm" style="padding:3px 7px;" onclick="stepBuffer('${p.id}','${label}',1)" title="เพิ่มสำรอง">+สำรอง</button>
+              ${getBuffer(p.id,label)?`<span class="muted" style="font-size:11px;">(+${getBuffer(p.id,label)})</span>`:''}
+            </div>`;
+          }
+          return `<span style="font-size:13px;">${colorDot(p.color)}${esc(p.name)} <b>${val}</b> ชิ้น</span>`;
+        }).join('')}
+      </div>
+    </div>`;
+  };
+
+  return `
+  <div class="card">
+    <p class="label-sm" style="margin-bottom:8px;">ช่วงวันที่ดูยอดขาย</p>
+    <div style="display:flex;gap:8px;">
+      <div class="field" style="flex:1;margin-bottom:0;"><label>ตั้งแต่</label><input type="date" value="${from}" oninput="state.kitchenFrom=this.value;render();"></div>
+      <div class="field" style="flex:1;margin-bottom:0;"><label>ถึง</label><input type="date" value="${to}" oninput="state.kitchenTo=this.value;render();"></div>
+    </div>
+  </div>
+
+  ${activeProducts.length===0?`<div class="empty">ยังไม่มีเมนูในระบบ</div>`:`
+
+  <h3>จำนวนขาย วันที่ ${thaiDate(from)} – ${thaiDate(to)}</h3>
+  <div class="card">
+    ${sizeRow('M', p=>ordered[productStockKey(p.id,'M')]||0)}
+    <div class="divider"></div>
+    ${sizeRow('L', p=>ordered[productStockKey(p.id,'L')]||0)}
+  </div>
+
+  <h3>สต็อกที่มี <span class="muted" style="font-weight:400;font-size:12px;">(ปรับแก้ได้ทุกวัน)</span></h3>
+  <div class="card">
+    ${sizeRow('M', p=>getProductStock(p.id,'M'), {editable:true})}
+    <div class="divider"></div>
+    ${sizeRow('L', p=>getProductStock(p.id,'L'), {editable:true})}
+    <p class="muted" style="font-size:11px;margin-top:8px;">ปุ่ม +/− ปรับทีละ 1 ชิ้น หรือกดเข้าเมนูแล้วมาปรับเองก็ได้</p>
+  </div>
+
+  <h3>ต้องผลิตเพิ่ม</h3>
+  <div class="card">
+    ${sizeRow('M', p=>{
+      const need=ordered[productStockKey(p.id,'M')]||0, stock=getProductStock(p.id,'M'), buf=getBuffer(p.id,'M');
+      return Math.max(0,need-stock)+buf;
+    }, {buffer:true})}
+    <div class="divider"></div>
+    ${sizeRow('L', p=>{
+      const need=ordered[productStockKey(p.id,'L')]||0, stock=getProductStock(p.id,'L'), buf=getBuffer(p.id,'L');
+      return Math.max(0,need-stock)+buf;
+    }, {buffer:true})}
+    <p class="muted" style="font-size:11px;margin-top:8px;">กด "+สำรอง" เพื่อเผื่อผลิตกันของเสียหายจากการทอด (ไม่ต้องย้อนมาปั้นเพิ่ม) — ตัวเลขสำรองนี้รีเซ็ตเมื่อรีเฟรชหน้า</p>
+  </div>
+
+  <h3>วัตถุดิบ <span class="muted" style="font-weight:400;font-size:12px;">(คำนวณจากยอดที่ต้องผลิตเพิ่ม)</span></h3>
+  <div class="card">
+    ${Object.keys(semiTotals).length===0 && Object.keys(rawTotals).length===0 ? `<p class="muted">ยังไม่มีอะไรต้องผลิตเพิ่มในช่วงนี้</p>` : `
+      ${Object.entries(semiTotals).map(([semiId,amt])=>{
+        const s = db.semiProducts.find(x=>x.id===semiId);
+        if(!s) return '';
+        const breakdown = (s.recipe||[]).map(r=>{
+          const info = semiComponentInfo(r);
+          const scaled = r.amount * amt; // s.recipe amount is per 1 unit of semi's own unit
+          return `${info.name} ${money(scaled)}${info.unit}`;
+        }).join(', ');
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+          <div class="row"><b>${esc(s.name)}</b><b style="color:var(--accent-dark);">${money(amt)} ${esc(s.unit)}</b></div>
+          ${breakdown?`<p class="muted" style="font-size:12px;margin-top:3px;">คำนวณจาก: ${breakdown}</p>`:'<p class="muted" style="font-size:12px;margin-top:3px;">(ยังไม่ได้ตั้งสูตรของรายการนี้)</p>'}
+        </div>`;
+      }).join('')}
+      ${Object.entries(rawTotals).map(([ingId,amt])=>{
+        const ing = db.ingredients.find(i=>i.id===ingId);
+        return `<div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);"><span>${esc(ing?ing.name:'?')}</span><b>${money(amt)} ${esc(ing?ing.unit:'')}</b></div>`;
+      }).join('')}
+    `}
+  </div>
+  `}
+  `;
+}
+
 /* ---------- RECURRING ---------- */
 const DOW_NAMES=['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 function renderRecurring(){
@@ -2099,14 +2606,17 @@ function generateRecurring(rid){
   const r = db.recurringOrders.find(x=>x.id===rid);
   const cust = db.customers.find(c=>c.id===r.customerId);
   const activeProducts = sortedActiveProducts();
+  const items = [];
+  activeProducts.forEach(p=>{
+    ['M','L'].forEach(size=>{
+      const ri = r.items.find(i=>i.productId===p.id && (i.size||'M')===size);
+      items.push({productId:p.id, size, qty: ri?ri.defaultQty:0, price:p.price});
+    });
+  });
   state.orderForm = {
     id:null, branchId:cust.branchId, customerId:cust.id, employeeId:state.session.employeeId,
     deliveryDate: state.selectedDate, jobStatus:'pending', paymentStatus:'unpaid', paymentMethod:null,
-    items: activeProducts.map(p=>{
-      const ri = r.items.find(i=>i.productId===p.id);
-      return {productId:p.id, qty: ri?ri.defaultQty:0, price:p.price};
-    }),
-    freebies: [],
+    items, freebies: [],
   };
   state.customerSearch = cust.name;
   goTo('neworder');
@@ -2216,10 +2726,12 @@ function renderReports(){
 /* ---------- MORE / SETTINGS ---------- */
 function renderMore(){
   const links=[
+    {v:'history',ico:ICO.list,label:'ประวัติออเดอร์',sub:'ค้นหา แก้ไข ดูย้อนหลัง'},
     {v:'customers',ico:ICO.users,label:'จัดการลูกค้า',sub:'รายชื่อ เบอร์โทร ที่อยู่จัดส่ง'},
     {v:'employees',ico:ICO.users,label:'จัดการพนักงาน',sub:'ชื่อพนักงาน และรหัส PIN'},
-    {v:'products',ico:ICO.box,label:'จัดการไส้กะหรี่ปั๊ป',sub:'ราคา ต้นทุน สูตร เปิด/ปิดขาย'},
-    {v:'ingredients',ico:ICO.box,label:'จัดการวัตถุดิบ',sub:'ชื่อ หน่วยนับ ต้นทุนต่อหน่วย'},
+    {v:'products',ico:ICO.box,label:'สูตรเมนูสำเร็จรูป',sub:'เมนูที่ขายจริง ราคา ต้นทุน สูตร'},
+    {v:'semiproducts',ico:ICO.box,label:'สูตรเมนูกึ่งสำเร็จรูป',sub:'แป้งนอก แป้งใน ไส้ ฯลฯ'},
+    {v:'ingredients',ico:ICO.box,label:'จัดการวัตถุดิบ',sub:'ชื่อ หน่วยนับ ต้นทุนต่อหน่วย สต็อก'},
     {v:'expenses',ico:ICO.chart,label:'ต้นทุน / รายจ่าย',sub:'บันทึกรายจ่ายซื้อของ ดูกำไรจริง'},
     {v:'recurring',ico:ICO.repeat,label:'ออเดอร์ประจำ',sub:'ลูกค้าที่สั่งซ้ำทุกสัปดาห์'},
     {v:'settings',ico:ICO.gear,label:'ตั้งค่าร้าน',sub:'PromptPay สาขา และอื่นๆ'},
@@ -2282,6 +2794,9 @@ async function clearMockData(){
       await sb.from('order_items').delete().neq('id',-1);
       await sb.from('recurring_order_items').delete().neq('id',-1);
       await sb.from('recipe_items').delete().neq('id',-1);
+      await sb.from('semi_recipe_items').delete().neq('id',-1);
+      await sb.from('product_stock').delete().neq('id','');
+      await sb.from('semi_products').delete().neq('id','');
       await sb.from('orders').delete().neq('id','');
       await sb.from('recurring_orders').delete().neq('id','');
       await sb.from('customers').delete().neq('id','');
