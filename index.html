@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>3P Puff</title>
-<meta name="app-version" content="2026-07-12-02">
+<meta name="app-version" content="2026-07-15-04">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -425,16 +425,21 @@ let bootError = null;
 
 function rowToEmployee(r){ return {id:r.id, branchId:r.branch_id, name:r.name, pin:r.pin, color:r.color||null}; }
 function rowToProduct(r, recipeRows){
+  const mkRecipe = (size) => (recipeRows||[]).filter(x=>x.product_id===r.id && (x.size||'M')===size).map(x=>({
+    componentType: x.component_type||'ingredient',
+    ingredientId: x.ingredient_id||null,
+    semiId: x.semi_id||null,
+    amount:Number(x.amount),
+  }));
   return {
-    id:r.id, name:r.name, price:Number(r.price), cost:Number(r.cost), active:r.active,
+    id:r.id, name:r.name,
+    priceM:Number(r.price_m!=null?r.price_m:r.price), priceL:Number(r.price_l!=null?r.price_l:r.price),
+    costM:Number(r.cost_m!=null?r.cost_m:r.cost), costL:Number(r.cost_l!=null?r.cost_l:r.cost),
+    active:r.active,
     sortOrder: r.sort_order==null ? 0 : Number(r.sort_order),
     color: r.color||null,
-    recipe: (recipeRows||[]).filter(x=>x.product_id===r.id).map(x=>({
-      componentType: x.component_type||'ingredient',
-      ingredientId: x.ingredient_id||null,
-      semiId: x.semi_id||null,
-      amount:Number(x.amount),
-    })),
+    recipeM: mkRecipe('M'),
+    recipeL: mkRecipe('L'),
   };
 }
 function rowToIngredient(r){ return {id:r.id, name:r.name, unit:r.unit, costPerUnit:Number(r.cost_per_unit), stockQty: r.stock_qty==null?0:Number(r.stock_qty)}; }
@@ -453,7 +458,9 @@ function rowToSemiProduct(r, recipeRows){
 function sortedAllProducts(){ return [...db.products].sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
 function sortedActiveProducts(){ return sortedAllProducts().filter(p=>p.active!==false); }
 function sortedSemiProducts(){ return [...db.semiProducts].sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)); }
-function rowToCustomer(r){ return {id:r.id, name:r.name, phone:r.phone, address:r.address, type:r.type, branchId:r.branch_id}; }
+function rowToCustomer(r){ return {id:r.id, name:r.name, phone:r.phone, address:r.address, type:r.type, branchId:r.branch_id, line:r.line||'', mapLink:r.map_link||'', employeeId:r.employee_id||null}; }
+function customerTypeLabel(t){ return t==='dealer' ? 'ตัวแทนจำหน่าย' : t==='recurring' ? 'ลูกค้าประจำ' : 'ลูกค้าทั่วไป'; }
+function customerTypeBadgeClass(t){ return t==='dealer' ? 'badge-done' : t==='recurring' ? 'badge-progress' : 'badge-pending'; }
 function rowToOrder(r, itemRows, freebieRows){
   return {
     id:r.id, branchId:r.branch_id, customerId:r.customer_id, employeeId:r.employee_id,
@@ -528,9 +535,13 @@ async function bootstrapSeedToSupabase(){
   }
 }
 
+let _persistChain = Promise.resolve();
 function persist(fn){
   if(!sb) return;
-  Promise.resolve().then(fn).catch(err=>{
+  // ทำงานทีละคำสั่งตามลำดับที่เรียก (serialize) เพื่อกัน race condition
+  // เช่น "เพิ่มลูกค้าใหม่ + ลงออเดอร์" — ออเดอร์ต้องรอให้ลูกค้าถูกบันทึกลง Supabase ก่อน
+  // ไม่งั้น insert ออเดอร์จะชน foreign key (orders_customer_id_fkey) แล้วออเดอร์หายเงียบๆ
+  _persistChain = _persistChain.then(fn).catch(err=>{
     console.error('sync error', err);
     toast('ซิงก์ข้อมูลขึ้น Supabase ไม่สำเร็จ (เช็คเน็ต/ตาราง)');
   });
@@ -608,7 +619,13 @@ let state = {
   branchScope:'mine',
   orderForm:null,
   customerForm:null,
+  customerDetailBackTo:null,
+  customerListSearch:'',
+  dealerExpandedDate:null,
+  dealerViewId:null,
+  dealerFilterEmployeeId:'',
   productForm:null,
+  productFormSize:'M',
   employeeForm:null,
   ingredientForm:null,
   semiForm:null,
@@ -693,9 +710,10 @@ function render(){
 function renderTopbar(){
   const emp = db.employees.find(e=>e.id===state.session.employeeId);
   const br = db.branches.find(b=>b.id===state.session.branchId);
-  const isSub = ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history'].includes(state.view);
+  const isSub = ['customers','customerDetail','dealerView','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history','reports'].includes(state.view);
+  const customerDetailBack = state.customerDetailBackTo || 'customers';
   return `<div class="topbar">
-    ${isSub?`<button class="icon-btn" onclick="goTo('${({customerDetail:'customers',employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients',expenseDetail:'expenses',semiDetail:'semiproducts',history:'more'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
+    ${isSub?`<button class="icon-btn" onclick="goTo('${state.view==='customerDetail'?customerDetailBack:({employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients',expenseDetail:'expenses',semiDetail:'semiproducts',history:'more',reports:'more',dealerView:'dealers'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
     <div class="topbar-row" style="align-items:center;">
       <div style="width:34px;flex-shrink:0;"></div>
       <div style="flex:1;text-align:center;">
@@ -712,12 +730,16 @@ function renderNav(){
     {v:'home',ico:ICO.home,label:'หน้าแรก'},
     {v:'kitchen',ico:ICO.box,label:'ครัว'},
     {v:'__new',ico:ICO.plus,label:''},
-    {v:'reports',ico:ICO.chart,label:'รายงาน'},
+    {v:'dealers',ico:ICO.users,label:'Contact'},
     {v:'more',ico:ICO.menu,label:'อื่นๆ'},
   ];
+  const activeTab = state.view==='customerDetail' ? ((state.customerDetailBackTo==='dealers'||state.customerDetailBackTo==='dealerView')?'dealers':'more')
+    : state.view==='dealerView' ? 'dealers'
+    : ['customers','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history','reports'].includes(state.view) ? 'more'
+    : state.view;
   return `<div class="navbar">` + items.map(it=>{
     if(it.v==='__new') return `<button class="nav-item" onclick="openNewOrder()"><span class="fab">${ICO.plus}</span></button>`;
-    const active = state.view===it.v || (it.v==='more' && ['customers','customerDetail','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history'].includes(state.view));
+    const active = activeTab===it.v;
     return `<button class="nav-item ${active?'active':''}" onclick="goTo('${it.v}')">${it.ico}<span>${it.label}</span></button>`;
   }).join('') + `</div>`;
 }
@@ -731,6 +753,8 @@ function renderView(){
     case 'more': return renderMore();
     case 'customers': return renderCustomers();
     case 'customerDetail': return renderCustomerDetail();
+    case 'dealers': return renderDealers();
+    case 'dealerView': return renderDealerView();
     case 'employees': return renderEmployees();
     case 'employeeDetail': return renderEmployeeDetail();
     case 'products': return renderProducts();
@@ -986,12 +1010,13 @@ function applyOrderSort(orders){
 }
 function deductStockForOrder(o){
   if(o.stockDeducted) return;
-  const allItems = [...o.items, ...(o.freebies||[]).map(f=>({productId:f.productId, qty:f.qty}))];
+  const allItems = [...o.items, ...(o.freebies||[]).map(f=>({productId:f.productId, size:f.size, qty:f.qty}))];
   const deltas = {};
   allItems.forEach(i=>{
     const p = db.products.find(x=>x.id===i.productId);
-    if(!p || !p.recipe || !p.recipe.length) return;
-    p.recipe.forEach(r=>{ deltas[r.ingredientId] = (deltas[r.ingredientId]||0) + r.amount*i.qty; });
+    const recipe = p ? (i.size==='L' ? p.recipeL : p.recipeM) : null;
+    if(!recipe || !recipe.length) return;
+    recipe.forEach(r=>{ if(r.ingredientId) deltas[r.ingredientId] = (deltas[r.ingredientId]||0) + r.amount*i.qty; });
   });
   o.stockDeducted = true;
   const keys = Object.keys(deltas);
@@ -1100,7 +1125,7 @@ function renderBulkPriceSheet(){
           ${products.map(p=>`<option value="${p.id}" ${bp.productId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}
         </select>
       </div>
-      <div class="field"><label>ราคาใหม่ต่อชิ้น (บาท)</label><input type="number" step="0.01" value="${bp.price}" oninput="state.bulkPriceSheet.price=parseFloat(this.value)||0"></div>
+      <div class="field"><label>ราคาใหม่ต่อชิ้น (บาท)</label><input type="text" inputmode="decimal" value="${bp.price}" oninput="state.bulkPriceSheet.price=parseFloat(this.value)||0"></div>
       <button class="btn btn-primary btn-block" style="margin-bottom:8px;" onclick="applyBulkPrice()">ใช้กับที่เลือก</button>
       <button class="btn btn-ghost btn-block" onclick="closeBulkPriceSheet()">ยกเลิก</button>
     </div>
@@ -1251,8 +1276,8 @@ function openNewOrder(){
   }
   const items = [];
   activeProducts.forEach(p=>{
-    items.push({productId:p.id, size:'M', qty:0, price:p.price});
-    items.push({productId:p.id, size:'L', qty:0, price:p.price});
+    items.push({productId:p.id, size:'M', qty:0, price:p.priceM});
+    items.push({productId:p.id, size:'L', qty:0, price:p.priceL});
   });
   state.orderForm = {
     id:null, branchId:state.session.branchId, customerId:null, employeeId:state.session.employeeId,
@@ -1270,7 +1295,7 @@ function openEditOrder(id){
   activeProducts.forEach(p=>{
     ['M','L'].forEach(size=>{
       const existing = f.items.find(i=>i.productId===p.id && (i.size||'M')===size);
-      items.push(existing ? {productId:p.id, size, qty:existing.qty, price:existing.price} : {productId:p.id, size, qty:0, price:p.price});
+      items.push(existing ? {productId:p.id, size, qty:existing.qty, price:existing.price} : {productId:p.id, size, qty:0, price: size==='L'?p.priceL:p.priceM});
     });
   });
   f.items = items;
@@ -1302,7 +1327,7 @@ function renderOrderForm(){
         <input type="text" placeholder="ค้นหาชื่อหรือเบอร์โทรลูกค้า" value="${esc(state.customerSearch)}"
           data-fid="customer-search" oninput="state.customerSearch=this.value; if(f_customerId_cleared()) render();" />
         ${matches.length ? `<div class="search-results">${matches.map(c=>`
-          <div class="search-result-item" onclick="pickCustomer('${c.id}')"><b>${esc(c.name)}</b><br><span class="muted">${esc(c.phone)} · ${c.type==='recurring'?'ลูกค้าประจำ':'ลูกค้าทั่วไป'}</span></div>
+          <div class="search-result-item" onclick="pickCustomer('${c.id}')"><b>${esc(c.name)}</b><br><span class="muted">${esc(c.phone)} · ${customerTypeLabel(c.type)}</span></div>
         `).join('')}</div>` : ''}
       </div>
       ${f.customerId ? (()=>{ const c=db.customers.find(x=>x.id===f.customerId); return c?`<div class="muted" style="margin-top:8px;">📍 ${esc(c.address||'-')}</div>`:''; })() : ''}
@@ -1339,7 +1364,7 @@ function renderOrderForm(){
       <div class="order-item-row" style="flex-direction:column;align-items:stretch;background:${anyQty?'var(--accent-bg)':'var(--surface-alt)'};border-radius:10px;padding:8px;">
         <b style="font-size:14px;">${esc(p.name)}</b>
         ${['M','L'].map(size=>{
-          const it = size==='M'?itemM:itemL;
+          const it = (size==='M'?itemM:itemL) || {qty:0, price: size==='L'?p.priceL:p.priceM};
           return `
           <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
             <span class="badge ${it.qty>0?'badge-progress':''}" style="width:24px;text-align:center;flex-shrink:0;">${size}</span>
@@ -1347,13 +1372,13 @@ function renderOrderForm(){
               <label style="margin:0;font-size:11px;">จำนวนชิ้น</label>
               <div class="qty-box">
                 <button onclick="stepQty('${p.id}','${size}',-1)">−</button>
-                <input type="number" inputmode="numeric" data-fid="item-qty-${p.id}-${size}" value="${it.qty}" oninput="setItemQty('${p.id}','${size}',this.value)">
+                <input type="text" inputmode="numeric" data-fid="item-qty-${p.id}-${size}" value="${it.qty}" oninput="setItemQty('${p.id}','${size}',this.value)">
                 <button onclick="stepQty('${p.id}','${size}',1)">+</button>
               </div>
             </div>
             <div class="col" style="flex:1;gap:2px;">
               <label style="margin:0;font-size:11px;">ราคา/ชิ้น (บาท)</label>
-              <input type="number" inputmode="decimal" step="0.01" data-fid="item-price-${p.id}-${size}" value="${it.price}" oninput="setItemPrice('${p.id}','${size}',this.value)" style="height:38px;">
+              <input type="text" inputmode="decimal" data-fid="item-price-${p.id}-${size}" value="${it.price}" oninput="setItemPrice('${p.id}','${size}',this.value)" style="height:38px;">
             </div>
           </div>`;
         }).join('')}
@@ -1378,7 +1403,7 @@ function renderOrderForm(){
         </select>
         <div class="qty-box">
           <button onclick="stepFreebieQty(${idx},-1)">−</button>
-          <input type="number" inputmode="numeric" data-fid="freebie-qty-${idx}" value="${fr.qty}" oninput="setFreebieQty(${idx},this.value)">
+          <input type="text" inputmode="numeric" data-fid="freebie-qty-${idx}" value="${fr.qty}" oninput="setFreebieQty(${idx},this.value)">
           <button onclick="stepFreebieQty(${idx},1)">+</button>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="removeFreebie(${idx})">${ICO.trash}</button>
@@ -1487,17 +1512,15 @@ function saveOrder(){
   if(chosen.length===0){ toast('กรุณาใส่จำนวนอย่างน้อย 1 รายการ'); return; }
   f.items = chosen;
   f.freebies = (f.freebies||[]).filter(fr=>fr.qty>0).map(fr=>({productId:fr.productId, size:fr.size||'M', qty:fr.qty}));
-  if(f.id){
+  const isEdit = !!f.id;
+  if(isEdit){
     const idx = db.orders.findIndex(o=>o.id===f.id);
     db.orders[idx] = f;
-    toast('บันทึกการแก้ไขแล้ว');
   } else {
     f.id = uid('o');
     f.createdAt = Date.now();
     db.orders.push(f);
-    toast('สร้างออเดอร์แล้ว');
   }
-  if(f.jobStatus==='delivered') deductStockForOrder(f);
   persist(async ()=>{
     const { error:e1 } = await sb.from('orders').upsert({
       id:f.id, branch_id:f.branchId, customer_id:f.customerId, employee_id:f.employeeId,
@@ -1514,8 +1537,15 @@ function saveOrder(){
       if(e3) throw e3;
     }
   });
+  // ตัดสต็อกหลัง persist ออเดอร์ (persist ทำงานเรียงลำดับแล้ว) เพื่อให้คำสั่ง update stock_deducted
+  // ตรงกับแถวออเดอร์ที่มีอยู่จริงแล้ว — กันสต็อกถูกตัดซ้ำตอนสร้างออเดอร์ที่ตั้งเป็น "ส่งแล้ว" ทันที
+  if(f.jobStatus==='delivered') deductStockForOrder(f);
+  // ต้องเปลี่ยนหน้าก่อนเรียก toast (toast ข้างในมี render()) — ห้าม render() ซ้ำตอนที่ยังอยู่หน้าฟอร์มเดิม
+  // เพราะ f.items ถูกตัดรายการที่จำนวน=0 ออกไปแล้วด้านบน ทำให้ renderOrderForm หาไซส์ M/L ไม่เจอแล้ว error พัง
+  // (บั๊กเดิม: toast()/render() เรียกตอนยังอยู่หน้าฟอร์ม ทำให้ throw ก่อนถึง persist() ออเดอร์เลยไม่ถูกบันทึกขึ้น Supabase)
   state.orderForm=null;
   goTo('home');
+  toast(isEdit ? 'บันทึกการแก้ไขแล้ว' : 'สร้างออเดอร์แล้ว');
 }
 async function cancelOrder(id){
   if(!confirm('ยืนยันยกเลิกออเดอร์นี้? (จะซ่อนออกจากทุกที่ แต่เก็บประวัติไว้กู้คืนได้)')) return;
@@ -1641,47 +1671,70 @@ function viewEmployeeOrders(eid){
 }
 const hf = state.historyFilter;
 
-/* ---------- CUSTOMERS ---------- */
+/* ---------- CUSTOMERS (รวมตัวแทนจำหน่าย — ตาราง customers เดียวกัน, แยกด้วย type='dealer') ---------- */
 function renderCustomers(){
-  const list = db.customers.filter(c=>state.branchScope==='all' || c.branchId===state.session.branchId);
+  const q = (state.customerListSearch||'').trim().toLowerCase();
+  const list = db.customers.filter(c=>
+    (state.branchScope==='all' || c.branchId===state.session.branchId) &&
+    (!q || (c.name+c.phone).toLowerCase().includes(q))
+  );
   return `
-  <button class="btn btn-primary btn-block" onclick="openCustomerDetail(null)">+ เพิ่มลูกค้าใหม่</button>
+  <button class="btn btn-primary btn-block" onclick="openCustomerDetail(null,'customers')">+ เพิ่มลูกค้าใหม่</button>
   <div style="height:12px;"></div>
-  ${list.length===0?`<div class="empty">ยังไม่มีลูกค้า</div>`:list.map(c=>`
-    <div class="card" style="cursor:pointer;" onclick="openCustomerDetail('${c.id}')">
+  <input type="text" data-fid="customer-list-search" placeholder="🔍 ค้นหาชื่อหรือเบอร์โทร" value="${esc(state.customerListSearch||'')}" oninput="state.customerListSearch=this.value;render();" style="margin-bottom:12px;">
+  ${list.length===0?`<div class="empty">${q?'ไม่พบลูกค้าที่ค้นหา':'ยังไม่มีลูกค้า'}</div>`:list.map(c=>`
+    <div class="card" style="cursor:pointer;" onclick="openCustomerDetail('${c.id}','customers')">
       <div class="row">
         <div class="col"><b>${esc(c.name)}</b><span class="muted">${esc(c.phone)}</span></div>
-        <span class="badge ${c.type==='recurring'?'badge-progress':'badge-pending'}">${c.type==='recurring'?'ลูกค้าประจำ':'ลูกค้าทั่วไป'}</span>
+        <span class="badge ${customerTypeBadgeClass(c.type)}">${customerTypeLabel(c.type)}</span>
       </div>
       <p class="muted" style="margin-top:6px;">📍 ${esc(c.address||'-')}</p>
     </div>
   `).join('')}
   `;
 }
-function openCustomerDetail(id){
+function openCustomerDetail(id, from){
+  state.customerDetailBackTo = from || 'customers';
   if(id){
     const c = db.customers.find(x=>x.id===id);
     state.customerForm = JSON.parse(JSON.stringify(c));
   } else {
-    state.customerForm = {id:null, name:'', phone:'', address:'', type:'individual', branchId:state.session.branchId};
+    state.customerForm = {id:null, name:'', phone:'', address:'', mapLink:'', line:'', employeeId:null, type: (from==='dealers'||from==='dealerView')?'dealer':'individual', branchId:state.session.branchId};
   }
   goTo('customerDetail');
 }
 function renderCustomerDetail(){
   const c = state.customerForm;
   const isEdit = !!c.id;
+  const isDealer = c.type==='dealer';
+  const emps = db.employees.filter(e=>e.branchId===c.branchId);
+  const backTo = state.customerDetailBackTo || 'customers';
   return `
-  <button class="btn btn-ghost" onclick="goTo('customers')">${ICO.back} กลับ</button>
+  <button class="btn btn-ghost" onclick="goTo('${backTo}')">${ICO.back} กลับ</button>
   <div class="card">
     <div class="field"><label>ชื่อลูกค้า</label><input data-fid="cd-name" value="${esc(c.name)}" oninput="state.customerForm.name=this.value"></div>
     <div class="field"><label>เบอร์โทร</label><input data-fid="cd-phone" value="${esc(c.phone)}" oninput="state.customerForm.phone=this.value"></div>
     <div class="field"><label>ที่อยู่จัดส่ง</label><textarea rows="2" data-fid="cd-address" oninput="state.customerForm.address=this.value">${esc(c.address)}</textarea></div>
+    <div class="field"><label>ลิงก์ Google Maps สถานที่จัดส่ง</label>
+      <input data-fid="cd-map" placeholder="https://maps.google.com/..." value="${esc(c.mapLink||'')}" oninput="state.customerForm.mapLink=this.value">
+      ${c.mapLink?`<a href="${esc(c.mapLink)}" target="_blank" rel="noopener" class="btn btn-sm" style="margin-top:8px;display:inline-block;">📍 เปิดแผนที่</a>`:''}
+    </div>
     <div class="field"><label>ประเภทลูกค้า</label>
-      <select onchange="state.customerForm.type=this.value">
+      <select onchange="state.customerForm.type=this.value;render();">
         <option value="individual" ${c.type==='individual'?'selected':''}>ลูกค้าทั่วไป</option>
         <option value="recurring" ${c.type==='recurring'?'selected':''}>ลูกค้าประจำ (สั่งซ้ำทุกสัปดาห์)</option>
+        <option value="dealer" ${c.type==='dealer'?'selected':''}>ตัวแทนจำหน่าย (รับไปขายต่อ)</option>
       </select>
     </div>
+    ${isDealer?`
+    <div class="field"><label>ไลน์ (LINE ID)</label><input data-fid="cd-line" value="${esc(c.line||'')}" oninput="state.customerForm.line=this.value"></div>
+    <div class="field"><label>ผู้รับผิดชอบ (พนักงาน)</label>
+      <select onchange="state.customerForm.employeeId=this.value||null">
+        <option value="">- ไม่ระบุ -</option>
+        ${emps.map(e=>`<option value="${e.id}" ${c.employeeId===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}
+      </select>
+    </div>
+    `:''}
   </div>
   <button class="btn btn-primary btn-block" onclick="saveCustomerDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มลูกค้า'}</button>
   ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteCustomerDetail()">${ICO.trash} ลบลูกค้านี้</button>`:''}
@@ -1690,26 +1743,140 @@ function renderCustomerDetail(){
 function saveCustomerDetail(){
   const c = state.customerForm;
   if(!c.name.trim()){ toast('กรุณากรอกชื่อลูกค้า'); return; }
-  if(c.id){
+  const isEdit = !!c.id;
+  if(isEdit){
     const idx = db.customers.findIndex(x=>x.id===c.id);
     db.customers[idx] = c;
-    persist(async ()=>{ const { error } = await sb.from('customers').update({name:c.name, phone:c.phone, address:c.address, type:c.type}).eq('id',c.id); if(error) throw error; });
-    toast('บันทึกการแก้ไขแล้ว');
   } else {
     c.id = uid('c');
     db.customers.push(c);
-    persist(async ()=>{ const { error } = await sb.from('customers').insert({id:c.id, name:c.name, phone:c.phone, address:c.address, type:c.type, branch_id:c.branchId}); if(error) throw error; });
-    toast('เพิ่มลูกค้าแล้ว');
   }
-  goTo('customers');
+  persist(async ()=>{
+    if(isEdit){
+      const { error } = await sb.from('customers').update({name:c.name, phone:c.phone, address:c.address, type:c.type, map_link:c.mapLink, line:c.line, employee_id:c.employeeId}).eq('id',c.id);
+      if(error) throw error;
+    } else {
+      const { error } = await sb.from('customers').insert({id:c.id, name:c.name, phone:c.phone, address:c.address, type:c.type, branch_id:c.branchId, map_link:c.mapLink, line:c.line, employee_id:c.employeeId});
+      if(error) throw error;
+    }
+  });
+  const backTo = state.customerDetailBackTo || 'customers';
+  state.customerForm = null;
+  goTo(backTo);
+  toast(isEdit ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มลูกค้าแล้ว');
 }
 function deleteCustomerDetail(){
   const c = state.customerForm;
   if(!confirm('ยืนยันลบลูกค้านี้? (ประวัติออเดอร์เก่าจะยังอยู่)')) return;
   db.customers = db.customers.filter(x=>x.id!==c.id);
   persist(async ()=>{ const { error } = await sb.from('customers').delete().eq('id',c.id); if(error) throw error; });
+  let backTo = state.customerDetailBackTo || 'customers';
+  if(backTo==='dealerView') backTo = 'dealers';
+  state.customerForm = null;
+  goTo(backTo);
   toast('ลบลูกค้าแล้ว');
-  goTo('customers');
+}
+
+/* ---------- CONTACT (รายชื่อตัวแทนจำหน่าย — filter ของ customers ที่ type='dealer') ---------- */
+function renderDealers(){
+  const filterEmp = state.dealerFilterEmployeeId || '';
+  let list = db.customers.filter(c=>c.type==='dealer' && (state.branchScope==='all' || c.branchId===state.session.branchId));
+  if(filterEmp) list = list.filter(c=>c.employeeId===filterEmp);
+  return `
+  <button class="btn btn-primary btn-block" onclick="openCustomerDetail(null,'dealers')">+ Contact</button>
+  <div style="height:12px;"></div>
+  <div class="field"><label>ดูแยกตามผู้ดูแล</label>
+    <select onchange="state.dealerFilterEmployeeId=this.value;render();">
+      <option value="">ทั้งหมด</option>
+      ${db.employees.map(e=>`<option value="${e.id}" ${filterEmp===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}
+    </select>
+  </div>
+  ${list.length===0?`<div class="empty">${filterEmp?'ผู้ดูแลคนนี้ยังไม่มีตัวแทนจำหน่ายในความดูแล':'ยังไม่มีตัวแทนจำหน่าย — เพิ่มได้ที่นี่ หรือเปลี่ยนประเภทลูกค้าเดิมเป็น \"ตัวแทนจำหน่าย\" ในหน้าจัดการลูกค้า'}</div>`:list.map(c=>{
+    const emp = db.employees.find(e=>e.id===c.employeeId);
+    const stats = dealerOrderStats(c);
+    return `
+    <div class="card" style="cursor:pointer;" onclick="openDealerView('${c.id}')">
+      <div class="row">
+        <div class="col"><b>${esc(c.name)}</b><span class="muted">${esc(c.phone)}</span></div>
+        <span class="badge badge-done">ตัวแทนจำหน่าย</span>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <span class="muted" style="font-size:13px;">ผู้ดูแล: <b style="color:var(--ink);">${esc(emp?emp.name:'ไม่ระบุ')}</b></span>
+        <b style="color:var(--accent-dark);">${money(stats.totalRevenue)} บาท</b>
+      </div>
+    </div>
+  `;}).join('')}
+  `;
+}
+function openDealerView(id){
+  state.dealerViewId = id;
+  state.dealerExpandedDate = null;
+  goTo('dealerView');
+}
+function renderDealerView(){
+  const c = db.customers.find(x=>x.id===state.dealerViewId);
+  if(!c){
+    return `<button class="btn btn-ghost" onclick="goTo('dealers')">${ICO.back} กลับ</button><div class="empty">ไม่พบข้อมูลตัวแทนจำหน่ายนี้</div>`;
+  }
+  const emp = db.employees.find(e=>e.id===c.employeeId);
+  const stats = dealerOrderStats(c);
+  return `
+  <button class="btn btn-ghost" onclick="goTo('dealers')">${ICO.back} กลับ</button>
+  <div class="card">
+    <div class="row"><b style="font-size:16px;">${esc(c.name)}</b><span class="badge badge-done">ตัวแทนจำหน่าย</span></div>
+    <p class="muted" style="margin-top:6px;">${esc(c.phone)}${c.line?` · LINE: ${esc(c.line)}`:''}</p>
+    <p class="muted" style="margin-top:4px;">📍 ${esc(c.address||'-')}</p>
+    ${c.mapLink?`<a href="${esc(c.mapLink)}" target="_blank" rel="noopener" class="btn btn-sm" style="margin-top:8px;display:inline-block;">📍 เปิดแผนที่</a>`:''}
+    <p class="muted" style="margin-top:8px;">ผู้ดูแล: <b style="color:var(--ink);">${esc(emp?emp.name:'ไม่ระบุ')}</b></p>
+  </div>
+  <button class="btn btn-block" onclick="openCustomerDetail('${c.id}','dealerView')">✏️ แก้ไขข้อมูล</button>
+
+  <h3>ยอดสั่งซื้อรวม</h3>
+  <div class="card">
+    <p style="margin:0;"><span class="big-number" style="font-size:22px;">${stats.totalQty.toLocaleString()} ชิ้น</span><span style="font-size:16px;color:var(--ink-soft);font-weight:700;"> = ${money(stats.totalRevenue)} บาท</span></p>
+  </div>
+  <h3>สั่งซื้อแยกตามวัน (${stats.dates.length} วัน)</h3>
+  ${stats.dates.length===0?`<div class="empty">ยังไม่มีประวัติสั่งซื้อ</div>`:stats.dates.map(d=>{
+    const dd = stats.byDate[d];
+    const expanded = state.dealerExpandedDate===d;
+    const relevantProducts = sortedActiveProducts().filter(p=>dd.byProduct[p.id]);
+    return `
+    <div class="card" style="cursor:pointer;margin-bottom:8px;" onclick="toggleDealerDate('${d}')">
+      <div class="row"><b>${thaiDate(d)}</b><b style="color:var(--accent-dark);">${dd.qty.toLocaleString()} ชิ้น</b></div>
+      ${expanded ? `<div class="divider"></div>` + ['M','L'].map(size=>`
+        <p style="font-size:13px;line-height:1.8;"><b style="color:var(--accent-dark);margin-right:4px;">${size}</b>` +
+        relevantProducts.map(p=>`${colorDot(p.color)}${esc(p.name)} ${dd.byProduct[p.id][size]}`).join(' <span class="muted">|</span> ') + `</p>`
+      ).join('') : `<p class="muted" style="margin-top:4px;font-size:12px;">แตะเพื่อดูรายละเอียด</p>`}
+    </div>
+  `;}).join('')}
+  `;
+}
+function dealerOrderStats(c){
+  const orders = db.orders.filter(o=>o.customerId===c.id && o.jobStatus!=='cancelled');
+  let totalQty=0, totalRevenue=0;
+  const byDate = {};
+  orders.forEach(o=>{
+    if(!byDate[o.deliveryDate]) byDate[o.deliveryDate] = {qty:0, byProduct:{}};
+    const d = byDate[o.deliveryDate];
+    o.items.forEach(i=>{
+      totalQty += i.qty; totalRevenue += i.qty*i.price;
+      d.qty += i.qty;
+      if(!d.byProduct[i.productId]) d.byProduct[i.productId] = {M:0,L:0};
+      d.byProduct[i.productId][i.size||'M'] += i.qty;
+    });
+    (o.freebies||[]).forEach(i=>{
+      totalQty += i.qty;
+      d.qty += i.qty;
+      if(!d.byProduct[i.productId]) d.byProduct[i.productId] = {M:0,L:0};
+      d.byProduct[i.productId][i.size||'M'] += i.qty;
+    });
+  });
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+  return {totalQty, totalRevenue, byDate, dates};
+}
+function toggleDealerDate(d){
+  state.dealerExpandedDate = state.dealerExpandedDate===d ? null : d;
+  render();
 }
 
 /* ---------- INGREDIENTS (วัตถุดิบ) ---------- */
@@ -1771,8 +1938,8 @@ function renderIngredientDetail(){
         ${['g','kg','ml','l','ชิ้น'].map(u=>`<option value="${u}" ${i.unit===u?'selected':''}>${u}</option>`).join('')}
       </select>
     </div>
-    <div class="field"><label>ต้นทุนต่อหน่วย (บาท)</label><input type="number" step="0.01" data-fid="ing-cost" value="${i.costPerUnit}" oninput="state.ingredientForm.costPerUnit=parseFloat(this.value)||0"></div>
-    <div class="field"><label>จำนวนคงเหลือในสต็อก (${esc(i.unit)})</label><input type="number" step="0.01" data-fid="ing-stock" value="${i.stockQty||0}" oninput="state.ingredientForm.stockQty=parseFloat(this.value)||0"></div>
+    <div class="field"><label>ต้นทุนต่อหน่วย (บาท)</label><input type="text" inputmode="decimal" data-fid="ing-cost" value="${i.costPerUnit}" oninput="state.ingredientForm.costPerUnit=parseFloat(this.value)||0"></div>
+    <div class="field"><label>จำนวนคงเหลือในสต็อก (${esc(i.unit)})</label><input type="text" inputmode="decimal" data-fid="ing-stock" value="${i.stockQty||0}" oninput="state.ingredientForm.stockQty=parseFloat(this.value)||0"></div>
     <p class="muted" style="font-size:12px;">ระบบจะตัดสต็อกอัตโนมัติตามสูตร เมื่อออเดอร์ที่ใช้ไส้นี้ถูกเปลี่ยนสถานะเป็น "ส่งแล้ว"</p>
   </div>
   <button class="btn btn-primary btn-block" onclick="saveIngredientDetail()">${isEdit?'บันทึกการแก้ไข':'เพิ่มวัตถุดิบ'}</button>
@@ -1799,7 +1966,7 @@ function deleteIngredientDetail(){
   const i = state.ingredientForm;
   if(!confirm('ยืนยันลบวัตถุดิบนี้? (จะถูกเอาออกจากสูตรที่ใช้อยู่ด้วย)')) return;
   db.ingredients = db.ingredients.filter(x=>x.id!==i.id);
-  db.products.forEach(p=>{ p.recipe = (p.recipe||[]).filter(r=>r.ingredientId!==i.id); });
+  db.products.forEach(p=>{ p.recipeM = (p.recipeM||[]).filter(r=>r.ingredientId!==i.id); p.recipeL = (p.recipeL||[]).filter(r=>r.ingredientId!==i.id); });
   db.semiProducts.forEach(s=>{ s.recipe = (s.recipe||[]).filter(r=>r.ingredientId!==i.id); });
   persist(async ()=>{ const { error } = await sb.from('ingredients').delete().eq('id',i.id); if(error) throw error; });
   toast('ลบวัตถุดิบแล้ว');
@@ -1909,7 +2076,7 @@ function renderSemiDetail(){
                 : db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
             </select>
             <div class="qty-box" style="flex:1;">
-              <input type="number" step="0.1" value="${r.amount}" oninput="setSemiAmount(${idx},this.value)">
+              <input type="text" inputmode="decimal" value="${r.amount}" oninput="setSemiAmount(${idx},this.value)">
             </div>
             <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
             <button class="btn btn-ghost btn-sm" onclick="removeSemiIngredient(${idx})">${ICO.trash}</button>
@@ -2017,7 +2184,7 @@ function deleteSemiDetail(){
   const s = state.semiForm;
   if(!confirm('ยืนยันลบสูตรนี้? (จะถูกเอาออกจากสูตรที่ใช้อยู่ทั้งหมดด้วย)')) return;
   db.semiProducts = db.semiProducts.filter(x=>x.id!==s.id);
-  db.products.forEach(p=>{ p.recipe = (p.recipe||[]).filter(r=>r.semiId!==s.id); });
+  db.products.forEach(p=>{ p.recipeM = (p.recipeM||[]).filter(r=>r.semiId!==s.id); p.recipeL = (p.recipeL||[]).filter(r=>r.semiId!==s.id); });
   db.semiProducts.forEach(other=>{ other.recipe = (other.recipe||[]).filter(r=>r.componentSemiId!==s.id); });
   persist(async ()=>{ const { error } = await sb.from('semi_products').delete().eq('id',s.id); if(error) throw error; });
   toast('ลบแล้ว');
@@ -2033,7 +2200,7 @@ function renderProducts(){
   ${list.length===0?`<div class="empty">ยังไม่มีไส้ในระบบ</div>`:list.map((p,idx)=>`
     <div class="card">
       <div class="row" style="cursor:pointer;" onclick="openProductDetail('${p.id}')">
-        <div class="col"><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color||'var(--accent)'};margin-right:6px;"></span>${esc(p.name)}</b><span class="muted">ราคาขาย ${money(p.price)}฿ · ต้นทุน ${money(p.cost)}฿${p.recipe&&p.recipe.length?` · ${p.recipe.length} วัตถุดิบ`:''}</span></div>
+        <div class="col"><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.color||'var(--accent)'};margin-right:6px;"></span>${esc(p.name)}</b><span class="muted">ราคา M ${money(p.priceM)}฿ / L ${money(p.priceL)}฿ · ต้นทุน M ${money(p.costM)}฿ / L ${money(p.costL)}฿</span></div>
         <span class="badge ${p.active===false?'badge-cancel':'badge-done'}">${p.active===false?'ปิดขายอยู่':'เปิดขายอยู่'}</span>
       </div>
       <div class="row" style="margin-top:8px;" onclick="event.stopPropagation();">
@@ -2063,13 +2230,15 @@ function moveProduct(id,dir){
   render();
 }
 function openProductDetail(id){
+  state.productFormSize = 'M';
   if(id){
     const p = db.products.find(x=>x.id===id);
     state.productForm = JSON.parse(JSON.stringify(p));
-    if(!state.productForm.recipe) state.productForm.recipe=[];
+    if(!state.productForm.recipeM) state.productForm.recipeM=[];
+    if(!state.productForm.recipeL) state.productForm.recipeL=[];
     if(!state.productForm.color) state.productForm.color = nextPaletteColor(db.products.length);
   } else {
-    state.productForm = {id:null, name:'', price:15, cost:0, active:true, recipe:[], sortOrder: db.products.length, color: nextPaletteColor(db.products.length)};
+    state.productForm = {id:null, name:'', priceM:15, priceL:20, costM:0, costL:0, active:true, recipeM:[], recipeL:[], sortOrder: db.products.length, color: nextPaletteColor(db.products.length)};
   }
   goTo('productDetail');
 }
@@ -2081,20 +2250,21 @@ function recipeComponentInfo(r){
   const ing = db.ingredients.find(i=>i.id===r.ingredientId);
   return { name: ing?ing.name:'?', unit: ing?ing.unit:'', costPerUnit: ing?ing.costPerUnit:0 };
 }
-function recipeComputedCost(p){
-  return (p.recipe||[]).reduce((s,r)=>s + recipeComponentInfo(r).costPerUnit*r.amount, 0);
+function recipeComputedCost(p, size){
+  return ((size==='L'?p.recipeL:p.recipeM)||[]).reduce((s,r)=>s + recipeComponentInfo(r).costPerUnit*r.amount, 0);
 }
+function productCostForSize(p, size){ return size==='L' ? p.costL : p.costM; }
 function renderProductDetail(){
   const p = state.productForm;
   const isEdit = !!p.id;
-  const computed = recipeComputedCost(p);
+  const sz = state.productFormSize==='L' ? 'L' : 'M';
+  const recipeKey = 'recipe'+sz;
+  const computed = recipeComputedCost(p, sz);
   const hasComponents = db.ingredients.length>0 || db.semiProducts.length>0;
   return `
   <button class="btn btn-ghost" onclick="goTo('products')">${ICO.back} กลับ</button>
   <div class="card">
     <div class="field"><label>ชื่อเมนู</label><input data-fid="pd-name" value="${esc(p.name)}" oninput="state.productForm.name=this.value" placeholder="เช่น กะหรี่ปั๊ปไส้ไก่"></div>
-    <div class="field"><label>ราคาขายต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-price" value="${p.price}" oninput="state.productForm.price=parseFloat(this.value)||0"></div>
-    <div class="field"><label>ต้นทุนต่อชิ้น (บาท)</label><input type="number" step="0.01" data-fid="pd-cost" value="${p.cost}" oninput="state.productForm.cost=parseFloat(this.value)||0"></div>
     <div class="field">
       <label>สีประจำเมนู</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -2107,14 +2277,28 @@ function renderProductDetail(){
     </div>
   </div>
 
-  <h3>สูตร (วัตถุดิบจริง หรือของกึ่งสำเร็จรูป)</h3>
+  <p class="muted" style="margin-bottom:8px;">ราคาและสูตรตั้งแยกกันได้ทีละไซส์ เพราะแต่ละไซส์ขายราคาไม่เท่ากันและใช้วัตถุดิบไม่เท่ากัน</p>
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <button class="btn ${sz==='M'?'btn-primary':''}" style="flex:1;" onclick="state.productFormSize='M';render();">ไซส์ M</button>
+    <button class="btn ${sz==='L'?'btn-primary':''}" style="flex:1;" onclick="state.productFormSize='L';render();">ไซส์ L</button>
+  </div>
+
+  <div class="card">
+    <div class="field"><label>ราคาขายต่อชิ้น ไซส์ ${sz} (บาท)</label><input type="text" inputmode="decimal" data-fid="pd-price-${sz}" value="${sz==='M'?p.priceM:p.priceL}" oninput="state.productForm.${sz==='M'?'priceM':'priceL'}=parseFloat(this.value)||0"></div>
+    <div class="field"><label>ต้นทุนต่อชิ้น ไซส์ ${sz} (บาท)</label><input type="text" inputmode="decimal" data-fid="pd-cost-${sz}" value="${sz==='M'?p.costM:p.costL}" oninput="state.productForm.${sz==='M'?'costM':'costL'}=parseFloat(this.value)||0"></div>
+  </div>
+
+  <h3>สูตรไซส์ ${sz} (วัตถุดิบจริง หรือของกึ่งสำเร็จรูป)</h3>
   <div class="card">
     ${!hasComponents?`
       <p class="muted" style="margin-bottom:10px;">ยังไม่มีวัตถุดิบหรือสูตรกึ่งสำเร็จรูปในระบบ ต้องเพิ่มก่อนถึงจะกำหนดสูตรได้</p>
       <button class="btn btn-block" onclick="goTo('ingredients')" style="margin-bottom:8px;">+ ไปเพิ่มวัตถุดิบ</button>
       <button class="btn btn-block" onclick="goTo('semiproducts')">+ ไปเพิ่มสูตรกึ่งสำเร็จรูป</button>
     `:`
-      ${(p.recipe||[]).map((r,idx)=>{
+      ${sz==='L' && (p.recipeL||[]).length===0 && (p.recipeM||[]).length>0?`
+        <button class="btn btn-sm btn-block" style="margin-bottom:10px;" onclick="copyRecipeMtoL()">📋 คัดลอกสูตรจาก M มาเริ่มต้น แล้วค่อยแก้จำนวน</button>
+      `:''}
+      ${(p[recipeKey]||[]).map((r,idx)=>{
         const info = recipeComponentInfo(r);
         return `<div class="order-item-row" style="flex-direction:column;align-items:stretch;background:var(--surface-alt);border-radius:10px;padding:8px;">
           <div style="display:flex;gap:6px;margin-bottom:6px;">
@@ -2128,7 +2312,7 @@ function renderProductDetail(){
                 : db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
             </select>
             <div class="qty-box" style="flex:1;">
-              <input type="number" step="0.1" data-fid="recipe-amount-${idx}" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
+              <input type="text" inputmode="decimal" data-fid="recipe-amount-${sz}-${idx}" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
             </div>
             <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
             <button class="btn btn-ghost btn-sm" onclick="removeRecipeItem(${idx})">${ICO.trash}</button>
@@ -2136,10 +2320,10 @@ function renderProductDetail(){
         </div>`;
       }).join('')}
       <button class="btn btn-sm" onclick="addRecipeItem()">+ เพิ่มรายการในสูตร</button>
-      ${(p.recipe||[]).length>0?`
+      ${(p[recipeKey]||[]).length>0?`
         <div class="divider"></div>
-        <div class="row"><span>ต้นทุนคำนวณจากสูตร</span><b>${money(computed)} บาท</b></div>
-        <button class="btn btn-sm btn-block" style="margin-top:8px;" onclick="state.productForm.cost=${computed};render();">ใช้ค่านี้เป็นต้นทุนต่อชิ้น</button>
+        <div class="row"><span>ต้นทุนคำนวณจากสูตร (ไซส์ ${sz})</span><b>${money(computed)} บาท</b></div>
+        <button class="btn btn-sm btn-block" style="margin-top:8px;" onclick="state.productForm.${sz==='M'?'costM':'costL'}=${computed};render();">ใช้ค่านี้เป็นต้นทุนต่อชิ้น</button>
       `:''}
     `}
   </div>
@@ -2148,43 +2332,59 @@ function renderProductDetail(){
   ${isEdit?`<button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="deleteProductDetail()">${ICO.trash} ลบเมนูนี้</button>`:''}
   `;
 }
+function copyRecipeMtoL(){
+  state.productForm.recipeL = JSON.parse(JSON.stringify(state.productForm.recipeM||[]));
+  render();
+}
 function addRecipeItem(){
-  if(!state.productForm.recipe) state.productForm.recipe=[];
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  if(!state.productForm[key]) state.productForm[key]=[];
   if(db.ingredients.length>0){
-    state.productForm.recipe.push({componentType:'ingredient', ingredientId:db.ingredients[0].id, semiId:null, amount:1});
+    state.productForm[key].push({componentType:'ingredient', ingredientId:db.ingredients[0].id, semiId:null, amount:1});
   } else {
-    state.productForm.recipe.push({componentType:'semi', ingredientId:null, semiId:db.semiProducts[0].id, amount:1});
+    state.productForm[key].push({componentType:'semi', ingredientId:null, semiId:db.semiProducts[0].id, amount:1});
   }
   render();
 }
 function setRecipeComponentType(idx,type){
-  const r = state.productForm.recipe[idx];
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  const r = state.productForm[key][idx];
   r.componentType = type;
   if(type==='ingredient'){ r.ingredientId = db.ingredients[0]?db.ingredients[0].id:null; r.semiId=null; }
   else { r.semiId = db.semiProducts[0]?db.semiProducts[0].id:null; r.ingredientId=null; }
   render();
 }
 function setRecipeComponent(idx,val){
-  const r = state.productForm.recipe[idx];
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  const r = state.productForm[key][idx];
   if(r.componentType==='semi') r.semiId=val; else r.ingredientId=val;
   render();
 }
-function setRecipeAmount(idx,val){ state.productForm.recipe[idx].amount=parseFloat(val)||0; render(); }
-function removeRecipeItem(idx){ state.productForm.recipe.splice(idx,1); render(); }
+function setRecipeAmount(idx,val){
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  state.productForm[key][idx].amount=parseFloat(val)||0;
+  render();
+}
+function removeRecipeItem(idx){
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  state.productForm[key].splice(idx,1);
+  render();
+}
 function saveProductDetail(){
   const p = state.productForm;
   if(!p.name.trim()){ toast('กรุณากรอกชื่อเมนู'); return; }
-  const recipeRows = (p.recipe||[]).map(r=>({
-    product_id:p.id, component_type:r.componentType||'ingredient',
+  const buildRows = (size) => (p['recipe'+size]||[]).map(r=>({
+    size, component_type:r.componentType||'ingredient',
     ingredient_id: r.componentType==='semi' ? null : r.ingredientId,
     semi_id: r.componentType==='semi' ? r.semiId : null,
     amount:r.amount,
   }));
+  const recipeRows = [...buildRows('M'), ...buildRows('L')];
   if(p.id){
     const idx = db.products.findIndex(x=>x.id===p.id);
     db.products[idx] = p;
     persist(async ()=>{
-      const { error:e1 } = await sb.from('products').update({name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color}).eq('id',p.id);
+      const { error:e1 } = await sb.from('products').update({name:p.name, price:p.priceM, cost:p.costM, price_m:p.priceM, price_l:p.priceL, cost_m:p.costM, cost_l:p.costL, active:p.active, sort_order:p.sortOrder||0, color:p.color}).eq('id',p.id);
       if(e1) throw e1;
       await sb.from('recipe_items').delete().eq('product_id',p.id);
       if(recipeRows.length){
@@ -2198,7 +2398,7 @@ function saveProductDetail(){
     p.id = uid('p');
     db.products.push(p);
     persist(async ()=>{
-      const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.price, cost:p.cost, active:p.active, sort_order:p.sortOrder||0, color:p.color});
+      const { error:e1 } = await sb.from('products').insert({id:p.id, name:p.name, price:p.priceM, cost:p.costM, price_m:p.priceM, price_l:p.priceL, cost_m:p.costM, cost_l:p.costL, active:p.active, sort_order:p.sortOrder||0, color:p.color});
       if(e1) throw e1;
       if(recipeRows.length){
         recipeRows.forEach(r=>r.product_id=p.id);
@@ -2383,7 +2583,7 @@ function renderExpenseDetail(){
       </select>
     </div>
     <div class="field"><label>ซื้ออะไรบ้าง</label><textarea rows="3" data-fid="exp-desc" oninput="state.expenseForm.description=this.value" placeholder="เช่น แป้งสาลี 5 กก., เนย 2 กก., น้ำมัน 1 ปี๊บ">${esc(e.description)}</textarea></div>
-    <div class="field"><label>ยอดจ่ายรวม (บาท)</label><input type="number" step="0.01" data-fid="exp-amount" value="${e.amount}" oninput="state.expenseForm.amount=parseFloat(this.value)||0"></div>
+    <div class="field"><label>ยอดจ่ายรวม (บาท)</label><input type="text" inputmode="decimal" data-fid="exp-amount" value="${e.amount}" oninput="state.expenseForm.amount=parseFloat(this.value)||0"></div>
     <div class="field">
       <label>รูปใบเสร็จ</label>
       ${e.receiptUrl?`
@@ -2495,15 +2695,14 @@ function renderKitchen(){
     (o.freebies||[]).forEach(i=>{ const k=productStockKey(i.productId,i.size||'M'); ordered[k]=(ordered[k]||0)+i.qty; });
   });
 
-  const toProduceByProduct = {};
+  const toProduceBySize = {};
   activeProducts.forEach(p=>{
     ['M','L'].forEach(size=>{
       const k = productStockKey(p.id,size);
       const need = ordered[k]||0;
       const stock = getProductStock(p.id,size);
       const buf = getBuffer(p.id,size);
-      const toProduce = Math.max(0, need-stock) + buf;
-      toProduceByProduct[p.id] = (toProduceByProduct[p.id]||0) + toProduce;
+      toProduceBySize[k] = Math.max(0, need-stock) + buf;
     });
   });
 
@@ -2522,11 +2721,14 @@ function renderKitchen(){
     });
   }
   activeProducts.forEach(p=>{
-    const qty = toProduceByProduct[p.id]||0;
-    if(qty<=0) return;
-    (p.recipe||[]).forEach(r=>{
-      if(r.componentType==='semi' && r.semiId){ addSemiNeed(r.semiId, r.amount*qty); }
-      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*qty; }
+    ['M','L'].forEach(size=>{
+      const qty = toProduceBySize[productStockKey(p.id,size)]||0;
+      if(qty<=0) return;
+      const recipe = size==='L' ? p.recipeL : p.recipeM;
+      (recipe||[]).forEach(r=>{
+        if(r.componentType==='semi' && r.semiId){ addSemiNeed(r.semiId, r.amount*qty); }
+        else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*qty; }
+      });
     });
   });
 
@@ -2652,7 +2854,7 @@ function generateRecurring(rid){
   activeProducts.forEach(p=>{
     ['M','L'].forEach(size=>{
       const ri = r.items.find(i=>i.productId===p.id && (i.size||'M')===size);
-      items.push({productId:p.id, size, qty: ri?ri.defaultQty:0, price:p.price});
+      items.push({productId:p.id, size, qty: ri?ri.defaultQty:0, price: size==='L'?p.priceL:p.priceM});
     });
   });
   state.orderForm = {
@@ -2690,8 +2892,8 @@ function renderReports(){
   const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0)+(o.freebies||[]).reduce((x,i)=>x+i.qty,0),0);
   const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
   const totalCost = orders.reduce((s,o)=>{
-    const paidCost = o.items.reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0);
-    const freeCost = (o.freebies||[]).reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?p.cost:0); },0);
+    const paidCost = o.items.reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?productCostForSize(p,i.size):0); },0);
+    const freeCost = (o.freebies||[]).reduce((x,i)=>{ const p=db.products.find(pp=>pp.id===i.productId); return x + i.qty*(p?productCostForSize(p,i.size):0); },0);
     return s + paidCost + freeCost;
   },0);
   const profit = totalRevenue - totalCost;
@@ -2768,8 +2970,9 @@ function renderReports(){
 /* ---------- MORE / SETTINGS ---------- */
 function renderMore(){
   const links=[
+    {v:'reports',ico:ICO.chart,label:'รายงาน',sub:'ยอดขาย สรุปตามช่วงเวลา'},
     {v:'history',ico:ICO.list,label:'ประวัติออเดอร์',sub:'ค้นหา แก้ไข ดูย้อนหลัง'},
-    {v:'customers',ico:ICO.users,label:'จัดการลูกค้า',sub:'รายชื่อ เบอร์โทร ที่อยู่จัดส่ง'},
+    {v:'customers',ico:ICO.users,label:'จัดการลูกค้า',sub:'รายชื่อ เบอร์โทร ที่อยู่จัดส่ง รวมตัวแทนจำหน่าย'},
     {v:'employees',ico:ICO.users,label:'จัดการพนักงาน',sub:'ชื่อพนักงาน และรหัส PIN'},
     {v:'products',ico:ICO.box,label:'สูตรเมนูสำเร็จรูป',sub:'เมนูที่ขายจริง ราคา ต้นทุน สูตร'},
     {v:'semiproducts',ico:ICO.box,label:'สูตรเมนูกึ่งสำเร็จรูป',sub:'แป้งนอก แป้งใน ไส้ ฯลฯ'},
