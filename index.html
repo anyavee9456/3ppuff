@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>3P Puff</title>
-<meta name="app-version" content="2026-07-15-04">
+<meta name="app-version" content="2026-07-15-05">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -446,6 +446,7 @@ function rowToIngredient(r){ return {id:r.id, name:r.name, unit:r.unit, costPerU
 function rowToSemiProduct(r, recipeRows){
   return {
     id:r.id, name:r.name, unit:r.unit||'g',
+    yieldQty: r.yield_qty==null ? 1 : Number(r.yield_qty),
     sortOrder: r.sort_order==null?0:Number(r.sort_order),
     recipe: (recipeRows||[]).filter(x=>x.semi_id===r.id).map(x=>({
       componentType: x.component_type||'ingredient',
@@ -1986,7 +1987,7 @@ function semiComputedCost(s, visiting){
   visiting = visiting || new Set();
   if(visiting.has(s.id)) return 0;
   visiting.add(s.id);
-  return (s.recipe||[]).reduce((sum,r)=>{
+  const batchCost = (s.recipe||[]).reduce((sum,r)=>{
     if(r.componentType==='semi'){
       const child = db.semiProducts.find(x=>x.id===r.componentSemiId);
       if(!child) return sum;
@@ -1995,6 +1996,7 @@ function semiComputedCost(s, visiting){
     const ing = db.ingredients.find(i=>i.id===r.ingredientId);
     return sum + (ing?ing.costPerUnit*r.amount:0);
   }, 0);
+  return batchCost / (s.yieldQty||1);
 }
 function renderSemiProducts(){
   const list = sortedSemiProducts();
@@ -2035,8 +2037,9 @@ function openSemiDetail(id){
     const s = db.semiProducts.find(x=>x.id===id);
     state.semiForm = JSON.parse(JSON.stringify(s));
     if(!state.semiForm.recipe) state.semiForm.recipe=[];
+    if(!state.semiForm.yieldQty) state.semiForm.yieldQty=1;
   } else {
-    state.semiForm = {id:null, name:'', unit:'g', sortOrder:db.semiProducts.length, recipe:[]};
+    state.semiForm = {id:null, name:'', unit:'g', yieldQty:1, sortOrder:db.semiProducts.length, recipe:[]};
   }
   goTo('semiDetail');
 }
@@ -2086,6 +2089,10 @@ function renderSemiDetail(){
       <button class="btn btn-sm" onclick="addSemiIngredient()">+ เพิ่มรายการในสูตร</button>
       ${(s.recipe||[]).length>0?`
         <div class="divider"></div>
+        <div class="field"><label>ทำตามสูตรด้านบน 1 รอบ ได้ผลผลิตกี่ ${esc(s.unit)}</label>
+          <input type="text" inputmode="decimal" data-fid="semi-yield" value="${s.yieldQty}" oninput="setSemiYield(this.value)">
+        </div>
+        <p class="muted" style="font-size:12px;margin-bottom:8px;">ระบบจะหารสูตรด้านบนด้วยตัวเลขนี้ เพื่อคำนวณต้นทุน/วัตถุดิบต่อ ${esc(s.unit)} เดียวให้อัตโนมัติ</p>
         <div class="row"><span>ต้นทุนคำนวณจากสูตร (ต่อ ${esc(s.unit)})</span><b>${money(computed)} บาท</b></div>
       `:''}
     `}
@@ -2118,6 +2125,7 @@ function setSemiComponent(idx,val){
   render();
 }
 function setSemiAmount(idx,val){ state.semiForm.recipe[idx].amount=parseFloat(val)||0; render(); }
+function setSemiYield(val){ const v=parseFloat(val); state.semiForm.yieldQty = v>0 ? v : 1; render(); }
 function removeSemiIngredient(idx){ state.semiForm.recipe.splice(idx,1); render(); }
 function semiRecipeHasCycle(startId, recipe){
   const visited = new Set();
@@ -2154,7 +2162,7 @@ function saveSemiDetail(){
     const idx = db.semiProducts.findIndex(x=>x.id===s.id);
     db.semiProducts[idx] = s;
     persist(async ()=>{
-      const { error:e1 } = await sb.from('semi_products').update({name:s.name, unit:s.unit}).eq('id',s.id);
+      const { error:e1 } = await sb.from('semi_products').update({name:s.name, unit:s.unit, yield_qty:s.yieldQty||1}).eq('id',s.id);
       if(e1) throw e1;
       await sb.from('semi_recipe_items').delete().eq('semi_id',s.id);
       if(recipeRows.length){
@@ -2168,7 +2176,7 @@ function saveSemiDetail(){
     s.id = uid('semi');
     db.semiProducts.push(s);
     persist(async ()=>{
-      const { error:e1 } = await sb.from('semi_products').insert({id:s.id, name:s.name, unit:s.unit, sort_order:s.sortOrder||0});
+      const { error:e1 } = await sb.from('semi_products').insert({id:s.id, name:s.name, unit:s.unit, yield_qty:s.yieldQty||1, sort_order:s.sortOrder||0});
       if(e1) throw e1;
       if(recipeRows.length){
         recipeRows.forEach(r=>r.semi_id=s.id);
@@ -2715,9 +2723,10 @@ function renderKitchen(){
     semiTotals[semiId] = (semiTotals[semiId]||0) + amountNeeded;
     const sp = db.semiProducts.find(x=>x.id===semiId);
     if(!sp) return;
+    const batches = amountNeeded / (sp.yieldQty||1);
     (sp.recipe||[]).forEach(r=>{
-      if(r.componentType==='semi' && r.componentSemiId){ addSemiNeed(r.componentSemiId, r.amount*amountNeeded, visiting); }
-      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*amountNeeded; }
+      if(r.componentType==='semi' && r.componentSemiId){ addSemiNeed(r.componentSemiId, r.amount*batches, visiting); }
+      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*batches; }
     });
   }
   activeProducts.forEach(p=>{
@@ -2806,9 +2815,10 @@ function renderKitchen(){
       ${Object.entries(semiTotals).map(([semiId,amt])=>{
         const s = db.semiProducts.find(x=>x.id===semiId);
         if(!s) return '';
+        const batches = amt / (s.yieldQty||1);
         const breakdown = (s.recipe||[]).map(r=>{
           const info = semiComponentInfo(r);
-          const scaled = r.amount * amt; // s.recipe amount is per 1 unit of semi's own unit
+          const scaled = r.amount * batches;
           return `${info.name} ${money(scaled)}${info.unit}`;
         }).join(', ');
         return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
