@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>3P Puff</title>
-<meta name="app-version" content="2026-07-15-05">
+<meta name="app-version" content="2026-07-21-02">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -339,6 +339,19 @@ function addDays(iso,n){
 const THAI_DAYS=['อา','จ','อ','พ','พฤ','ศ','ส'];
 const THAI_MONTHS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 function thaiDate(iso){ const d=new Date(iso+'T00:00:00'); return `${THAI_DAYS[d.getDay()]} ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${d.getFullYear()+543}`; }
+/* ---------- แปลงหน่วยในสูตร (กรอกหน่วยย่อยได้ แม้สต็อกเก็บเป็นหน่วยใหญ่) ---------- */
+const UNIT_TO_BASE = { kg:{base:'g',factor:1000}, g:{base:'g',factor:1}, l:{base:'ml',factor:1000}, ml:{base:'ml',factor:1} };
+function compatibleUnits(nativeUnit){
+  const info = UNIT_TO_BASE[nativeUnit];
+  if(!info) return [nativeUnit];
+  return Object.keys(UNIT_TO_BASE).filter(u=>UNIT_TO_BASE[u].base===info.base);
+}
+function convertToNativeUnit(amount, fromUnit, nativeUnit){
+  if(!fromUnit || fromUnit===nativeUnit) return amount;
+  const a = UNIT_TO_BASE[fromUnit], b = UNIT_TO_BASE[nativeUnit];
+  if(!a || !b || a.base!==b.base) return amount;
+  return (amount*a.factor)/b.factor;
+}
 function money(n){ return Number(n||0).toLocaleString('th-TH',{maximumFractionDigits:2}); }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function colorDot(color){ return `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color||'var(--accent)'};margin-right:5px;vertical-align:middle;"></span>`; }
@@ -381,6 +394,7 @@ function seed(){
     recurringOrders:[],
     expenses:[],
     productStock:[],
+    leftovers:[],
     settings:{ promptpayId:'', multiBranch:false },
   };
 }
@@ -430,6 +444,7 @@ function rowToProduct(r, recipeRows){
     ingredientId: x.ingredient_id||null,
     semiId: x.semi_id||null,
     amount:Number(x.amount),
+    unit: x.unit||null,
   }));
   return {
     id:r.id, name:r.name,
@@ -453,6 +468,7 @@ function rowToSemiProduct(r, recipeRows){
       ingredientId: x.ingredient_id||null,
       componentSemiId: x.component_semi_id||null,
       amount:Number(x.amount),
+      unit: x.unit||null,
     })),
   };
 }
@@ -481,9 +497,10 @@ function rowToExpense(r){
   return { id:r.id, branchId:r.branch_id, employeeId:r.employee_id, date:r.date, description:r.description, amount:Number(r.amount), receiptUrl:r.receipt_url||null, createdAt:Number(r.created_at) };
 }
 function rowToProductStock(r){ return { id:r.id, productId:r.product_id, size:r.size, qty:Number(r.qty) }; }
+function rowToLeftover(r){ return { id:r.id, branchId:r.branch_id, date:r.date, productId:r.product_id, size:r.size, qty:Number(r.qty), unitCost: r.unit_cost==null?0:Number(r.unit_cost) }; }
 
 async function loadAllFromSupabase(){
-  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR] = await Promise.all([
+  const [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR,loR] = await Promise.all([
     sb.from('branches').select('*'),
     sb.from('employees').select('*'),
     sb.from('products').select('*'),
@@ -500,8 +517,9 @@ async function loadAllFromSupabase(){
     sb.from('semi_products').select('*'),
     sb.from('semi_recipe_items').select('*'),
     sb.from('product_stock').select('*'),
+    sb.from('leftovers').select('*'),
   ]);
-  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR].find(r=>r.error);
+  const firstErr = [brR,empR,prodR,custR,ordR,itemR,rordR,ritemR,setR,ingR,recR,expR,freeR,semiR,semiRecR,pstockR,loR].find(r=>r.error);
   if(firstErr) throw firstErr.error;
   db.branches = brR.data;
   db.employees = empR.data.map(rowToEmployee);
@@ -513,6 +531,7 @@ async function loadAllFromSupabase(){
   db.recurringOrders = rordR.data.map(r=>rowToRecurring(r, ritemR.data));
   db.expenses = expR.data.map(rowToExpense);
   db.productStock = pstockR.data.map(rowToProductStock);
+  db.leftovers = loR.data.map(rowToLeftover);
   db.settings = { promptpayId: setR.data ? setR.data.promptpay_id : '', multiBranch: setR.data ? !!setR.data.multi_branch : false };
   db.products.forEach((p,i)=>{ if(!p.color) p.color = nextPaletteColor(i); });
   db.employees.forEach((e,i)=>{ if(!e.color) e.color = nextPaletteColor(i+4); });
@@ -645,6 +664,9 @@ let state = {
   kitchenFrom: todayISO(),
   kitchenTo: todayISO(),
   kitchenBuffer: {},
+  leftoverDate: todayISO(),
+  leftoverExpandedDate: null,
+  leftoverSheetOpen: false,
   toastMsg:null,
   qrOrderId:null,
   bulkSheetIds:null,
@@ -680,7 +702,11 @@ function render(){
   const active = document.activeElement;
   let focusInfo = null;
   if(active && active.dataset && active.dataset.fid){
-    focusInfo = { fid: active.dataset.fid, start: active.selectionStart, end: active.selectionEnd };
+    // เก็บ "ข้อความดิบที่พิมพ์อยู่" ไว้ด้วย ไม่ใช่แค่ตำแหน่ง cursor — เพราะช่องตัวเลขหลายช่องเก็บ
+    // state เป็นตัวเลขที่ parseFloat แล้ว พอ re-render ค่าที่ derive จาก state จะถูก "จัดรูปใหม่"
+    // (เช่นพิมพ์ "0." แล้วโดนตัดจุดทศนิยมทิ้งเพราะ parseFloat("0.")===0) ทำให้พิมพ์ต่อไม่ได้ปกติ
+    // แก้โดยเอาข้อความดิบที่ผู้ใช้พิมพ์ยัดกลับเข้าไปหลัง re-render แทนค่าที่ derive จาก state
+    focusInfo = { fid: active.dataset.fid, start: active.selectionStart, end: active.selectionEnd, rawValue: active.value };
   }
   if(bootError){
     app.innerHTML = `<div style="padding:40px 20px;text-align:center;">
@@ -695,11 +721,12 @@ function render(){
   }
   if(!state.session){ app.innerHTML = renderLogin() + (updateAvailable?renderUpdateBanner():''); return; }
   const showNav = !['neworder'].includes(state.view);
-  app.innerHTML = renderTopbar() + `<div class="content ${showNav?'':'no-nav'}">` + renderView() + '</div>' + (showNav?renderNav():'') + (state.toastMsg?`<div class="toast">${esc(state.toastMsg)}</div>`:'') + (state.bulkSheetIds?renderBulkStatusSheet():'') + (state.bulkPriceSheet?renderBulkPriceSheet():'') + (state.bulkPaySheetIds?renderBulkPaySheet():'') + (updateAvailable?renderUpdateBanner():'');
+  app.innerHTML = renderTopbar() + `<div class="content ${showNav?'':'no-nav'}">` + renderView() + '</div>' + (showNav?renderNav():'') + (state.toastMsg?`<div class="toast">${esc(state.toastMsg)}</div>`:'') + (state.bulkSheetIds?renderBulkStatusSheet():'') + (state.bulkPriceSheet?renderBulkPriceSheet():'') + (state.bulkPaySheetIds?renderBulkPaySheet():'') + (state.leftoverSheetOpen?renderLeftoverSheet():'') + (updateAvailable?renderUpdateBanner():'');
   afterRender();
   if(focusInfo){
     const el = app.querySelector(`[data-fid="${focusInfo.fid}"]`);
     if(el){
+      if(typeof focusInfo.rawValue==='string' && el.value!==focusInfo.rawValue){ el.value = focusInfo.rawValue; }
       el.focus();
       if(typeof focusInfo.start==='number' && el.setSelectionRange){
         try{ el.setSelectionRange(focusInfo.start, focusInfo.end); }catch(e){}
@@ -711,7 +738,7 @@ function render(){
 function renderTopbar(){
   const emp = db.employees.find(e=>e.id===state.session.employeeId);
   const br = db.branches.find(b=>b.id===state.session.branchId);
-  const isSub = ['customers','customerDetail','dealerView','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history','reports'].includes(state.view);
+  const isSub = ['customers','customerDetail','dealerView','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','leftovers','history','reports'].includes(state.view);
   const customerDetailBack = state.customerDetailBackTo || 'customers';
   return `<div class="topbar">
     ${isSub?`<button class="icon-btn" onclick="goTo('${state.view==='customerDetail'?customerDetailBack:({employeeDetail:'employees',productDetail:'products',ingredientDetail:'ingredients',expenseDetail:'expenses',semiDetail:'semiproducts',history:'more',reports:'more',dealerView:'dealers'})[state.view]||'more'}')" style="margin-bottom:8px;">${ICO.back}</button>`:''}
@@ -736,7 +763,7 @@ function renderNav(){
   ];
   const activeTab = state.view==='customerDetail' ? ((state.customerDetailBackTo==='dealers'||state.customerDetailBackTo==='dealerView')?'dealers':'more')
     : state.view==='dealerView' ? 'dealers'
-    : ['customers','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','history','reports'].includes(state.view) ? 'more'
+    : ['customers','employees','employeeDetail','products','productDetail','ingredients','ingredientDetail','semiproducts','semiDetail','recurring','settings','expenses','expenseDetail','leftovers','history','reports'].includes(state.view) ? 'more'
     : state.view;
   return `<div class="navbar">` + items.map(it=>{
     if(it.v==='__new') return `<button class="nav-item" onclick="openNewOrder()"><span class="fab">${ICO.plus}</span></button>`;
@@ -767,6 +794,7 @@ function renderView(){
     case 'kitchen': return renderKitchen();
     case 'expenses': return renderExpenses();
     case 'expenseDetail': return renderExpenseDetail();
+    case 'leftovers': return renderLeftovers();
     case 'recurring': return renderRecurring();
     case 'settings': return renderSettings();
     default: return '';
@@ -890,6 +918,10 @@ function renderHome(){
   orders = applyOrderSort(orders);
   const totalQty = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty,0)+(o.freebies||[]).reduce((x,i)=>x+i.qty,0),0);
   const totalRevenue = orders.reduce((s,o)=>s+o.items.reduce((x,i)=>x+i.qty*i.price,0),0);
+  const orderRevenue = o=>o.items.reduce((x,i)=>x+i.qty*i.price,0);
+  const cashReceived = orders.filter(o=>o.paymentStatus==='paid' && o.paymentMethod==='cash').reduce((s,o)=>s+orderRevenue(o),0);
+  const transferReceived = orders.filter(o=>o.paymentStatus==='paid' && o.paymentMethod==='qr').reduce((s,o)=>s+orderRevenue(o),0);
+  const unpaidTotal = orders.filter(o=>o.paymentStatus!=='paid').reduce((s,o)=>s+orderRevenue(o),0);
   const byProduct = {};
   orders.forEach(o=>{
     o.items.forEach(i=>{
@@ -935,6 +967,19 @@ function renderHome(){
       }).join(' <span class="muted">|</span> ') + `</p>`
     ).join('') : `<p class="muted" style="margin-top:8px;">ยังไม่มีออเดอร์วันนี้</p>`}
   </div>
+
+  <button class="btn btn-sm" style="margin-bottom:14px;" onclick="openLeftoverSheet()">🍟 บันทึกของเหลือวันนี้</button>
+
+  ${orders.length>0? `
+  <h3>เงินสด / เงินโอน (เฉพาะที่จ่ายแล้ว)</h3>
+  <div class="card">
+    <div class="row"><span>💵 เงินสด</span><b>${money(cashReceived)} บาท</b></div>
+    <div class="row" style="margin-top:6px;"><span>📱 เงินโอน (QR PromptPay)</span><b>${money(transferReceived)} บาท</b></div>
+    <div class="divider"></div>
+    <div class="row"><span style="font-weight:700;">รวมรับแล้ว</span><b style="color:var(--accent-dark);">${money(cashReceived+transferReceived)} บาท</b></div>
+    ${unpaidTotal>0?`<p class="muted" style="font-size:12px;margin-top:8px;">ยังค้างจ่ายอีก ${money(unpaidTotal)} บาท (ไม่รวมในยอดข้างต้น)</p>`:''}
+  </div>
+  `:''}
 
   ${orders.length>0? `
   <h3>สรุปตามพนักงาน</h3>
@@ -1017,7 +1062,12 @@ function deductStockForOrder(o){
     const p = db.products.find(x=>x.id===i.productId);
     const recipe = p ? (i.size==='L' ? p.recipeL : p.recipeM) : null;
     if(!recipe || !recipe.length) return;
-    recipe.forEach(r=>{ if(r.ingredientId) deltas[r.ingredientId] = (deltas[r.ingredientId]||0) + r.amount*i.qty; });
+    recipe.forEach(r=>{
+      if(!r.ingredientId) return;
+      const ing = db.ingredients.find(x=>x.id===r.ingredientId);
+      const amt = ing ? convertToNativeUnit(r.amount, r.unit, ing.unit) : r.amount;
+      deltas[r.ingredientId] = (deltas[r.ingredientId]||0) + amt*i.qty;
+    });
   });
   o.stockDeducted = true;
   const keys = Object.keys(deltas);
@@ -1991,10 +2041,10 @@ function semiComputedCost(s, visiting){
     if(r.componentType==='semi'){
       const child = db.semiProducts.find(x=>x.id===r.componentSemiId);
       if(!child) return sum;
-      return sum + semiComputedCost(child, visiting)*r.amount;
+      return sum + semiComputedCost(child, visiting)*convertToNativeUnit(r.amount, r.unit, child.unit);
     }
     const ing = db.ingredients.find(i=>i.id===r.ingredientId);
-    return sum + (ing?ing.costPerUnit*r.amount:0);
+    return sum + (ing?ing.costPerUnit*convertToNativeUnit(r.amount, r.unit, ing.unit):0);
   }, 0);
   return batchCost / (s.yieldQty||1);
 }
@@ -2067,6 +2117,8 @@ function renderSemiDetail(){
     `:`
       ${(s.recipe||[]).map((r,idx)=>{
         const info = semiComponentInfo(r);
+        const units = compatibleUnits(info.unit);
+        const entryUnit = r.unit || info.unit;
         return `<div class="order-item-row" style="flex-direction:column;align-items:stretch;background:var(--surface-alt);border-radius:10px;padding:8px;">
           <div style="display:flex;gap:6px;margin-bottom:6px;">
             <button class="btn btn-sm ${r.componentType==='ingredient'?'btn-primary':''}" style="flex:1;" onclick="setSemiComponentType(${idx},'ingredient')">วัตถุดิบจริง</button>
@@ -2079,9 +2131,11 @@ function renderSemiDetail(){
                 : db.ingredients.map(i=>`<option value="${i.id}" ${r.ingredientId===i.id?'selected':''}>${esc(i.name)}</option>`).join('')}
             </select>
             <div class="qty-box" style="flex:1;">
-              <input type="text" inputmode="decimal" value="${r.amount}" oninput="setSemiAmount(${idx},this.value)">
+              <input type="text" inputmode="decimal" data-fid="semi-amount-${idx}" value="${r.amount}" oninput="setSemiAmount(${idx},this.value)">
             </div>
-            <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
+            ${units.length>1
+              ? `<select style="width:64px;flex-shrink:0;" onchange="setSemiUnit(${idx},this.value)">${units.map(u=>`<option value="${u}" ${entryUnit===u?'selected':''}>${u}</option>`).join('')}</select>`
+              : `<span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>`}
             <button class="btn btn-ghost btn-sm" onclick="removeSemiIngredient(${idx})">${ICO.trash}</button>
           </div>
         </div>`;
@@ -2104,10 +2158,11 @@ function renderSemiDetail(){
 function addSemiIngredient(){
   if(!state.semiForm.recipe) state.semiForm.recipe=[];
   if(db.ingredients.length>0){
-    state.semiForm.recipe.push({componentType:'ingredient', ingredientId:db.ingredients[0].id, componentSemiId:null, amount:1});
+    state.semiForm.recipe.push({componentType:'ingredient', ingredientId:db.ingredients[0].id, componentSemiId:null, amount:1, unit:db.ingredients[0].unit});
   } else {
     const otherSemis = db.semiProducts.filter(x=>x.id!==state.semiForm.id);
-    state.semiForm.recipe.push({componentType:'semi', ingredientId:null, componentSemiId:otherSemis[0]?otherSemis[0].id:null, amount:1});
+    const s0 = otherSemis[0]||null;
+    state.semiForm.recipe.push({componentType:'semi', ingredientId:null, componentSemiId:s0?s0.id:null, amount:1, unit:s0?s0.unit:null});
   }
   render();
 }
@@ -2115,15 +2170,17 @@ function setSemiComponentType(idx,type){
   const r = state.semiForm.recipe[idx];
   const otherSemis = db.semiProducts.filter(x=>x.id!==state.semiForm.id);
   r.componentType = type;
-  if(type==='ingredient'){ r.ingredientId = db.ingredients[0]?db.ingredients[0].id:null; r.componentSemiId=null; }
-  else { r.componentSemiId = otherSemis[0]?otherSemis[0].id:null; r.ingredientId=null; }
+  if(type==='ingredient'){ const ing=db.ingredients[0]; r.ingredientId = ing?ing.id:null; r.componentSemiId=null; r.unit = ing?ing.unit:null; }
+  else { const s=otherSemis[0]; r.componentSemiId = s?s.id:null; r.ingredientId=null; r.unit = s?s.unit:null; }
   render();
 }
 function setSemiComponent(idx,val){
   const r = state.semiForm.recipe[idx];
-  if(r.componentType==='semi') r.componentSemiId=val; else r.ingredientId=val;
+  if(r.componentType==='semi'){ r.componentSemiId=val; const s=db.semiProducts.find(x=>x.id===val); r.unit = s?s.unit:null; }
+  else { r.ingredientId=val; const ing=db.ingredients.find(x=>x.id===val); r.unit = ing?ing.unit:null; }
   render();
 }
+function setSemiUnit(idx,val){ state.semiForm.recipe[idx].unit = val; render(); }
 function setSemiAmount(idx,val){ state.semiForm.recipe[idx].amount=parseFloat(val)||0; render(); }
 function setSemiYield(val){ const v=parseFloat(val); state.semiForm.yieldQty = v>0 ? v : 1; render(); }
 function removeSemiIngredient(idx){ state.semiForm.recipe.splice(idx,1); render(); }
@@ -2156,7 +2213,7 @@ function saveSemiDetail(){
     component_type:r.componentType||'ingredient',
     ingredient_id: r.componentType==='semi' ? null : r.ingredientId,
     component_semi_id: r.componentType==='semi' ? r.componentSemiId : null,
-    amount:r.amount,
+    amount:r.amount, unit:r.unit||null,
   }));
   if(s.id){
     const idx = db.semiProducts.findIndex(x=>x.id===s.id);
@@ -2259,7 +2316,10 @@ function recipeComponentInfo(r){
   return { name: ing?ing.name:'?', unit: ing?ing.unit:'', costPerUnit: ing?ing.costPerUnit:0 };
 }
 function recipeComputedCost(p, size){
-  return ((size==='L'?p.recipeL:p.recipeM)||[]).reduce((s,r)=>s + recipeComponentInfo(r).costPerUnit*r.amount, 0);
+  return ((size==='L'?p.recipeL:p.recipeM)||[]).reduce((s,r)=>{
+    const info = recipeComponentInfo(r);
+    return s + info.costPerUnit*convertToNativeUnit(r.amount, r.unit, info.unit);
+  }, 0);
 }
 function productCostForSize(p, size){ return size==='L' ? p.costL : p.costM; }
 function renderProductDetail(){
@@ -2308,6 +2368,8 @@ function renderProductDetail(){
       `:''}
       ${(p[recipeKey]||[]).map((r,idx)=>{
         const info = recipeComponentInfo(r);
+        const units = compatibleUnits(info.unit);
+        const entryUnit = r.unit || info.unit;
         return `<div class="order-item-row" style="flex-direction:column;align-items:stretch;background:var(--surface-alt);border-radius:10px;padding:8px;">
           <div style="display:flex;gap:6px;margin-bottom:6px;">
             <button class="btn btn-sm ${r.componentType==='ingredient'?'btn-primary':''}" style="flex:1;" onclick="setRecipeComponentType(${idx},'ingredient')">วัตถุดิบจริง</button>
@@ -2322,7 +2384,9 @@ function renderProductDetail(){
             <div class="qty-box" style="flex:1;">
               <input type="text" inputmode="decimal" data-fid="recipe-amount-${sz}-${idx}" value="${r.amount}" oninput="setRecipeAmount(${idx},this.value)">
             </div>
-            <span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>
+            ${units.length>1
+              ? `<select style="width:64px;flex-shrink:0;" onchange="setRecipeUnit(${idx},this.value)">${units.map(u=>`<option value="${u}" ${entryUnit===u?'selected':''}>${u}</option>`).join('')}</select>`
+              : `<span class="muted" style="width:30px;flex-shrink:0;">${esc(info.unit)}</span>`}
             <button class="btn btn-ghost btn-sm" onclick="removeRecipeItem(${idx})">${ICO.trash}</button>
           </div>
         </div>`;
@@ -2348,9 +2412,9 @@ function addRecipeItem(){
   const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
   if(!state.productForm[key]) state.productForm[key]=[];
   if(db.ingredients.length>0){
-    state.productForm[key].push({componentType:'ingredient', ingredientId:db.ingredients[0].id, semiId:null, amount:1});
+    state.productForm[key].push({componentType:'ingredient', ingredientId:db.ingredients[0].id, semiId:null, amount:1, unit:db.ingredients[0].unit});
   } else {
-    state.productForm[key].push({componentType:'semi', ingredientId:null, semiId:db.semiProducts[0].id, amount:1});
+    state.productForm[key].push({componentType:'semi', ingredientId:null, semiId:db.semiProducts[0].id, amount:1, unit:db.semiProducts[0].unit});
   }
   render();
 }
@@ -2358,14 +2422,20 @@ function setRecipeComponentType(idx,type){
   const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
   const r = state.productForm[key][idx];
   r.componentType = type;
-  if(type==='ingredient'){ r.ingredientId = db.ingredients[0]?db.ingredients[0].id:null; r.semiId=null; }
-  else { r.semiId = db.semiProducts[0]?db.semiProducts[0].id:null; r.ingredientId=null; }
+  if(type==='ingredient'){ const ing=db.ingredients[0]; r.ingredientId = ing?ing.id:null; r.semiId=null; r.unit = ing?ing.unit:null; }
+  else { const s=db.semiProducts[0]; r.semiId = s?s.id:null; r.ingredientId=null; r.unit = s?s.unit:null; }
   render();
 }
 function setRecipeComponent(idx,val){
   const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
   const r = state.productForm[key][idx];
-  if(r.componentType==='semi') r.semiId=val; else r.ingredientId=val;
+  if(r.componentType==='semi'){ r.semiId=val; const s=db.semiProducts.find(x=>x.id===val); r.unit = s?s.unit:null; }
+  else { r.ingredientId=val; const ing=db.ingredients.find(x=>x.id===val); r.unit = ing?ing.unit:null; }
+  render();
+}
+function setRecipeUnit(idx,val){
+  const key = 'recipe'+(state.productFormSize==='L'?'L':'M');
+  state.productForm[key][idx].unit = val;
   render();
 }
 function setRecipeAmount(idx,val){
@@ -2385,7 +2455,7 @@ function saveProductDetail(){
     size, component_type:r.componentType||'ingredient',
     ingredient_id: r.componentType==='semi' ? null : r.ingredientId,
     semi_id: r.componentType==='semi' ? r.semiId : null,
-    amount:r.amount,
+    amount:r.amount, unit:r.unit||null,
   }));
   const recipeRows = [...buildRows('M'), ...buildRows('L')];
   if(p.id){
@@ -2725,8 +2795,13 @@ function renderKitchen(){
     if(!sp) return;
     const batches = amountNeeded / (sp.yieldQty||1);
     (sp.recipe||[]).forEach(r=>{
-      if(r.componentType==='semi' && r.componentSemiId){ addSemiNeed(r.componentSemiId, r.amount*batches, visiting); }
-      else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*batches; }
+      if(r.componentType==='semi' && r.componentSemiId){
+        const child = db.semiProducts.find(x=>x.id===r.componentSemiId);
+        addSemiNeed(r.componentSemiId, convertToNativeUnit(r.amount, r.unit, child?child.unit:null)*batches, visiting);
+      } else if(r.ingredientId){
+        const ing = db.ingredients.find(x=>x.id===r.ingredientId);
+        rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + convertToNativeUnit(r.amount, r.unit, ing?ing.unit:null)*batches;
+      }
     });
   }
   activeProducts.forEach(p=>{
@@ -2735,8 +2810,14 @@ function renderKitchen(){
       if(qty<=0) return;
       const recipe = size==='L' ? p.recipeL : p.recipeM;
       (recipe||[]).forEach(r=>{
-        if(r.componentType==='semi' && r.semiId){ addSemiNeed(r.semiId, r.amount*qty); }
-        else if(r.ingredientId){ rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + r.amount*qty; }
+        if(r.componentType==='semi' && r.semiId){
+          const sp = db.semiProducts.find(x=>x.id===r.semiId);
+          addSemiNeed(r.semiId, convertToNativeUnit(r.amount, r.unit, sp?sp.unit:null)*qty);
+        }
+        else if(r.ingredientId){
+          const ing = db.ingredients.find(x=>x.id===r.ingredientId);
+          rawTotals[r.ingredientId] = (rawTotals[r.ingredientId]||0) + convertToNativeUnit(r.amount, r.unit, ing?ing.unit:null)*qty;
+        }
       });
     });
   });
@@ -2818,7 +2899,7 @@ function renderKitchen(){
         const batches = amt / (s.yieldQty||1);
         const breakdown = (s.recipe||[]).map(r=>{
           const info = semiComponentInfo(r);
-          const scaled = r.amount * batches;
+          const scaled = convertToNativeUnit(r.amount, r.unit, info.unit) * batches;
           return `${info.name} ${money(scaled)}${info.unit}`;
         }).join(', ');
         return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
@@ -2834,6 +2915,120 @@ function renderKitchen(){
   </div>
   `}
   `;
+}
+
+/* ---------- ของทอดเหลือ (LEFTOVERS) ---------- */
+function leftoverKey(date,pid,size){ return `${date}_${pid}_${size}`; }
+function getLeftover(date,pid,size){
+  const rec = db.leftovers.find(x=>x.date===date && x.productId===pid && x.size===size);
+  if(rec) return {qty:rec.qty, unitCost:rec.unitCost};
+  const p = db.products.find(x=>x.id===pid);
+  return {qty:0, unitCost: p?productCostForSize(p,size):0};
+}
+function setLeftoverEntry(date,pid,size,qty,unitCost){
+  qty = Math.max(0, qty);
+  unitCost = Math.max(0, unitCost||0);
+  const id = leftoverKey(date,pid,size);
+  let rec = db.leftovers.find(x=>x.id===id);
+  if(!rec){ rec = {id, branchId:state.session.branchId, date, productId:pid, size, qty:0, unitCost:0}; db.leftovers.push(rec); }
+  rec.qty = qty; rec.unitCost = unitCost;
+  persist(async ()=>{ const { error } = await sb.from('leftovers').upsert({id, branch_id:rec.branchId, date, product_id:pid, size, qty, unit_cost:unitCost}); if(error) throw error; });
+  render();
+}
+function adjustLeftover(date,pid,size,delta){
+  const cur = getLeftover(date,pid,size);
+  setLeftoverEntry(date,pid,size, cur.qty+delta, cur.unitCost);
+}
+function setLeftoverCost(date,pid,size,val){
+  const cur = getLeftover(date,pid,size);
+  setLeftoverEntry(date,pid,size, cur.qty, parseFloat(val)||0);
+}
+function toggleLeftoverDate(d){ state.leftoverExpandedDate = state.leftoverExpandedDate===d ? null : d; render(); }
+function renderLeftoverEditorRow(date, p){
+  return `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border);">
+        <b style="font-size:14px;">${colorDot(p.color)}${esc(p.name)}</b>
+        <div style="display:flex;gap:16px;margin-top:6px;flex-wrap:wrap;">
+          ${['M','L'].map(size=>{
+            const lo = getLeftover(date,p.id,size);
+            return `
+            <div style="display:flex;gap:8px;align-items:flex-end;">
+              <div class="col" style="gap:2px;">
+                <label style="margin:0;font-size:11px;">ไซส์ ${size}</label>
+                <div class="qty-box">
+                  <button onclick="adjustLeftover('${date}','${p.id}','${size}',-1)">−</button>
+                  <b style="min-width:20px;text-align:center;display:inline-block;">${lo.qty}</b>
+                  <button onclick="adjustLeftover('${date}','${p.id}','${size}',1)">+</button>
+                </div>
+              </div>
+              <div class="col" style="gap:2px;width:80px;">
+                <label style="margin:0;font-size:11px;">ราคาทุน/ชิ้น</label>
+                <input type="text" inputmode="decimal" data-fid="leftover-cost-${date}-${p.id}-${size}" value="${lo.unitCost}" oninput="setLeftoverCost('${date}','${p.id}','${size}',this.value)" style="height:36px;">
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+}
+function renderLeftovers(){
+  const date = state.leftoverDate || todayISO();
+  const activeProducts = sortedActiveProducts();
+  const scoped = db.leftovers.filter(x=>x.qty>0 && (state.branchScope==='all' || x.branchId===state.session.branchId));
+  const byDate = {};
+  scoped.forEach(x=>{
+    if(!byDate[x.date]) byDate[x.date] = {qty:0, cost:0, byProduct:{}};
+    const d = byDate[x.date];
+    d.qty += x.qty;
+    d.cost += x.qty*(x.unitCost||0);
+    if(!d.byProduct[x.productId]) d.byProduct[x.productId] = {M:0,L:0};
+    d.byProduct[x.productId][x.size] += x.qty;
+  });
+  const dates = Object.keys(byDate).sort((a,b)=>b.localeCompare(a));
+
+  return `
+  <p class="muted" style="margin-bottom:12px;">บันทึกจำนวนของทอดเหลือแต่ละวัน (ทอดไว้แล้วขายไม่หมด) พร้อมราคาทุน เอาไว้เช็คสต็อกและคิดต้นทุนตอนเคลียร์เงิน — ราคาทุนขึ้นให้อัตโนมัติจากต้นทุนที่ตั้งไว้ในสูตรเมนู แก้เองได้ถ้าอยากใส่ตัวเลขจริงตอนนั้น</p>
+  <div class="card">
+    <div class="field"><label>วันที่บันทึก</label><input type="date" value="${date}" oninput="state.leftoverDate=this.value;render();"></div>
+  </div>
+  ${activeProducts.length===0?`<div class="empty">ยังไม่มีเมนูในระบบ</div>`:`
+  <div class="card">
+    ${activeProducts.map(p=>renderLeftoverEditorRow(date,p)).join('')}
+  </div>
+  `}
+
+  <h3>สรุปของทอดเหลือแต่ละวัน</h3>
+  ${dates.length===0?`<div class="empty">ยังไม่มีการบันทึกของทอดเหลือ</div>`:dates.map(d=>{
+    const dd = byDate[d];
+    const expanded = state.leftoverExpandedDate===d;
+    const relevantProducts = activeProducts.filter(p=>dd.byProduct[p.id]);
+    return `
+    <div class="card" style="cursor:pointer;margin-bottom:8px;" onclick="toggleLeftoverDate('${d}')">
+      <div class="row"><b>${thaiDate(d)}</b><b style="color:var(--accent-dark);">${dd.qty.toLocaleString()} ชิ้น</b></div>
+      <p class="muted" style="font-size:12px;margin-top:3px;">มูลค่าต้นทุน ${money(dd.cost)} บาท</p>
+      ${expanded ? `<div class="divider"></div>` + ['M','L'].map(size=>`
+        <p style="font-size:13px;line-height:1.8;"><b style="color:var(--accent-dark);margin-right:4px;">${size}</b>` +
+        relevantProducts.filter(p=>dd.byProduct[p.id][size]>0).map(p=>`${colorDot(p.color)}${esc(p.name)} ${dd.byProduct[p.id][size]}`).join(' <span class="muted">|</span> ') + `</p>`
+      ).join('') : `<p class="muted" style="margin-top:4px;font-size:12px;">แตะเพื่อดูรายละเอียด</p>`}
+    </div>
+  `;}).join('')}
+  `;
+}
+function openLeftoverSheet(){ state.leftoverSheetOpen = true; render(); }
+function closeLeftoverSheet(){ state.leftoverSheetOpen = false; render(); }
+function renderLeftoverSheet(){
+  const date = todayISO();
+  const activeProducts = sortedActiveProducts();
+  const todayQty = db.leftovers.filter(x=>x.date===date && (state.branchScope==='all'||x.branchId===state.session.branchId)).reduce((s,x)=>s+x.qty,0);
+  const todayCost = db.leftovers.filter(x=>x.date===date && (state.branchScope==='all'||x.branchId===state.session.branchId)).reduce((s,x)=>s+x.qty*(x.unitCost||0),0);
+  return `<div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200;max-width:480px;margin:0 auto;animation:fadeIn 0.18s ease;" onclick="if(event.target===this)closeLeftoverSheet()">
+    <div class="card" style="width:320px;max-height:80vh;overflow-y:auto;animation:sheetIn 0.22s cubic-bezier(.2,.8,.2,1);">
+      <p class="label-sm" style="margin-bottom:4px;">🍟 ของเหลือวันนี้ (${thaiDate(date)})</p>
+      <p class="muted" style="margin-bottom:10px;">รวม ${todayQty.toLocaleString()} ชิ้น = ${money(todayCost)} บาท</p>
+      ${activeProducts.length===0?`<p class="muted">ยังไม่มีเมนูในระบบ</p>`:activeProducts.map(p=>renderLeftoverEditorRow(date,p)).join('')}
+      <button class="btn btn-block" style="margin-top:12px;" onclick="closeLeftoverSheet();goTo('leftovers');">ดูสรุปทั้งหมด →</button>
+      <button class="btn btn-primary btn-block" style="margin-top:8px;" onclick="closeLeftoverSheet()">เสร็จแล้ว</button>
+    </div>
+  </div>`;
 }
 
 /* ---------- RECURRING ---------- */
@@ -2890,6 +3085,9 @@ function renderReports(){
   } else if(state.reportRange==='custom'){
     from = state.reportCustomFrom;
     to = state.reportCustomTo;
+  } else if(state.reportRange==='alltime'){
+    from = '2000-01-01';
+    to = todayISO();
   } else {
     from = addDays(todayISO(), -parseInt(state.reportRange));
     to = todayISO();
@@ -2913,7 +3111,13 @@ function renderReports(){
     return e.date>=from && e.date<=to;
   });
   const totalExpenseLogged = rangeExpenses.reduce((s,e)=>s+e.amount,0);
-  const netProfit = profit - totalExpenseLogged;
+  const rangeLeftovers = db.leftovers.filter(x=>{
+    if(x.qty<=0) return false;
+    if(state.branchScope==='mine' && x.branchId!==state.session.branchId) return false;
+    return x.date>=from && x.date<=to;
+  });
+  const totalLeftoverCost = rangeLeftovers.reduce((s,x)=>s+x.qty*(x.unitCost||0),0);
+  const netProfit = profit - totalExpenseLogged - totalLeftoverCost;
 
   const byProduct={};
   orders.forEach(o=>{
@@ -2929,6 +3133,7 @@ function renderReports(){
 
   return `
   <div class="pill-row">
+    <div class="pill ${state.reportRange==='alltime'?'active':''}" onclick="state.reportRange='alltime';render();">ปัจจุบัน (ตั้งแต่เริ่ม)</div>
     <div class="pill ${state.reportRange==='7'?'active':''}" onclick="state.reportRange='7';render();">7 วันล่าสุด</div>
     <div class="pill ${state.reportRange==='30'?'active':''}" onclick="state.reportRange='30';render();">30 วันล่าสุด</div>
     <div class="pill ${state.reportRange==='thismonth'?'active':''}" onclick="state.reportRange='thismonth';render();">เดือนนี้</div>
@@ -2952,6 +3157,7 @@ function renderReports(){
     <div class="row"><span>ยอดขายรวม</span><b>${money(totalRevenue)} บาท</b></div>
     <div class="row"><span>ต้นทุนวัตถุดิบโดยประมาณ (จากสูตร)</span><b>-${money(totalCost)} บาท</b></div>
     <div class="row"><span>รายจ่ายที่บันทึกจริง (${rangeExpenses.length} รายการ)</span><b>-${money(totalExpenseLogged)} บาท</b></div>
+    <div class="row"><span>ต้นทุนของทอดเหลือ (${rangeLeftovers.length} รายการ)</span><b>-${money(totalLeftoverCost)} บาท</b></div>
     <div class="divider"></div>
     <div class="row"><span style="font-weight:700;">กำไรสุทธิ</span><b style="color:${netProfit>=0?'var(--success)':'var(--danger)'};font-size:16px;">${money(netProfit)} บาท</b></div>
     ${totalExpenseLogged===0?`<p class="muted" style="margin-top:8px;font-size:12px;">ยังไม่มีการบันทึกรายจ่ายในช่วงนี้ — ไปบันทึกได้ที่เมนู "ต้นทุน / รายจ่าย"</p>`:''}
@@ -2988,6 +3194,7 @@ function renderMore(){
     {v:'semiproducts',ico:ICO.box,label:'สูตรเมนูกึ่งสำเร็จรูป',sub:'แป้งนอก แป้งใน ไส้ ฯลฯ'},
     {v:'ingredients',ico:ICO.box,label:'จัดการวัตถุดิบ',sub:'ชื่อ หน่วยนับ ต้นทุนต่อหน่วย สต็อก'},
     {v:'expenses',ico:ICO.chart,label:'ต้นทุน / รายจ่าย',sub:'บันทึกรายจ่ายซื้อของ ดูกำไรจริง'},
+    {v:'leftovers',ico:ICO.box,label:'ของทอดเหลือ',sub:'บันทึกของเหลือแต่ละวัน ดูสรุปย้อนหลัง'},
     {v:'recurring',ico:ICO.repeat,label:'ออเดอร์ประจำ',sub:'ลูกค้าที่สั่งซ้ำทุกสัปดาห์'},
     {v:'settings',ico:ICO.gear,label:'ตั้งค่าร้าน',sub:'PromptPay สาขา และอื่นๆ'},
   ];
@@ -3062,6 +3269,7 @@ async function clearMockData(){
       await sb.from('recipe_items').delete().neq('id',-1);
       await sb.from('semi_recipe_items').delete().neq('id',-1);
       await sb.from('product_stock').delete().neq('id','');
+      await sb.from('leftovers').delete().neq('id','');
       await sb.from('semi_products').delete().neq('id','');
       await sb.from('orders').delete().neq('id','');
       await sb.from('recurring_orders').delete().neq('id','');
